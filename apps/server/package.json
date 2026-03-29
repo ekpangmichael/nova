@@ -1,0 +1,35 @@
+{
+  "name": "@nova/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:deps": "pnpm --filter @nova/shared build && pnpm --filter @nova/runtime-adapter build && pnpm --filter @nova/db build",
+    "dev": "pnpm run build:deps && tsx watch src/index.ts",
+    "build": "pnpm run build:deps && tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run build:deps && vitest run"
+  },
+  "dependencies": {
+    "@nova/db": "workspace:*",
+    "@nova/runtime-adapter": "workspace:*",
+    "@nova/shared": "workspace:*",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "fastify": "^5.0.0",
+    "drizzle-orm": "^0.43.0",
+    "mime-types": "^2.1.35",
+    "ws": "^8.18.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/mime-types": "^2.1.4",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  }
+}
