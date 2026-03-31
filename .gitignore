@@ -20,6 +20,8 @@ build
 # misc
 .DS_Store
 *.pem
+/.nova-data/
+/google_client_secret.json
 
 # debug
 npm-debug.log*
