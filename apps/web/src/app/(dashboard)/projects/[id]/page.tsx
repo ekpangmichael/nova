@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { ApiError, getAgents, getProject, getProjectActivity } from "@/lib/api";
+import { ProjectActionButtons } from "@/components/project-detail/project-action-buttons";
 
 const statusConfig = {
   active: {
@@ -52,6 +53,7 @@ export default async function ProjectDetailPage({
       getAgents(),
     ]);
     const assignedAgents = agents.filter((agent) => agent.projectIds.includes(project.id));
+    const visibleActivity = activity.slice(0, 5);
     const status = statusConfig[project.status];
 
     return (
@@ -74,13 +76,19 @@ export default async function ProjectDetailPage({
                 ID: {project.id}
               </span>
             </div>
-            <Link
-              href={`/projects/${project.id}/board`}
-              className="ghost px-5 py-2.5 rounded-sm text-sm font-bold text-on-surface flex items-center gap-2 hover:bg-surface-container-high/60 transition-all"
-            >
-              Go to Project Board
-              <Icon name="arrow_forward" size={16} />
-            </Link>
+            <div className="flex items-center gap-2">
+              <ProjectActionButtons
+                projectId={project.id}
+                projectName={project.name}
+              />
+              <Link
+                href={`/projects/${project.id}/board`}
+                className="ghost px-5 py-2.5 rounded-sm text-sm font-bold text-on-surface flex items-center gap-2 hover:bg-surface-container-high/60 transition-all"
+              >
+                Go to Project Board
+                <Icon name="arrow_forward" size={16} />
+              </Link>
+            </div>
           </div>
           <div>
             <h2 className="text-4xl font-extrabold tracking-tighter text-on-surface">
@@ -236,12 +244,12 @@ export default async function ProjectDetailPage({
                   Activity
                 </h3>
                 <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-widest">
-                  Latest 20
+                  Latest 5
                 </span>
               </div>
-              {activity.length > 0 ? (
+              {visibleActivity.length > 0 ? (
                 <div className="space-y-4">
-                  {activity.map((item) => {
+                  {visibleActivity.map((item) => {
                     const visual = formatActivityLabel(item.type);
 
                     return (

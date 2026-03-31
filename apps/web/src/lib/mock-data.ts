@@ -18,10 +18,10 @@ import type {
 } from "@/types";
 
 export const heroStats: HeroStat[] = [
-  { label: "Global Throughput", value: 1284, unit: "ops/sec", accentColor: "tertiary" },
-  { label: "System Uptime", value: 99.99, unit: "%", decimals: 2, accentColor: "secondary" },
-  { label: "Active Agents", value: 12, unit: "/ 14 deployed" },
-  { label: "Resource Load", value: 42, unit: "% CPU" },
+  { label: "Total Projects", value: 4, unit: "active", accentColor: "secondary" },
+  { label: "Active Agents", value: 12, unit: "/ 14 deployed", accentColor: "tertiary" },
+  { label: "Open Tasks", value: 37, unit: "across projects" },
+  { label: "Completed This Week", value: 18, unit: "tasks" },
 ];
 
 export const workingAgents: WorkingAgent[] = [
@@ -79,12 +79,12 @@ export const scheduledAgents: ScheduledAgent[] = [
 ];
 
 export const activityFeed: ActivityEvent[] = [
-  { timestamp: "14:20:12", agentId: "AGENT_X-99", message: "began processing BATCH_04 \u2014 sentiment analysis pipeline", status: "working" },
-  { timestamp: "14:18:55", agentId: "AGENT_V-02", message: "initiated subnet delta scan \u2014 handshake confirmed", status: "working" },
-  { timestamp: "14:15:33", agentId: "PROXY_ALPHA_9", message: "authentication failure \u2014 ERR_403 key rotation blocked", status: "error" },
-  { timestamp: "14:12:12", agentId: "AGENT_M-00", message: "pattern matching completed \u2014 4.2GB noise filtered", status: "neutral" },
-  { timestamp: "13:58:22", agentId: "IDLE_IC_342", message: "entered standby \u2014 awaiting payload dispatch", status: "idle" },
-  { timestamp: "13:45:10", agentId: "SCH_DB_VAC", message: "queued for execution \u2014 T-04:12:00 until dispatch", status: "scheduled" },
+  { timestamp: "14:20:12", actorLabel: "AGENT_X-99", message: "began processing BATCH_04 \u2014 sentiment analysis pipeline", status: "working" },
+  { timestamp: "14:18:55", actorLabel: "AGENT_V-02", message: "initiated subnet delta scan \u2014 handshake confirmed", status: "working" },
+  { timestamp: "14:15:33", actorLabel: "PROXY_ALPHA_9", message: "authentication failure \u2014 ERR_403 key rotation blocked", status: "error" },
+  { timestamp: "14:12:12", actorLabel: "AGENT_M-00", message: "pattern matching completed \u2014 4.2GB noise filtered", status: "neutral" },
+  { timestamp: "13:58:22", actorLabel: "IDLE_IC_342", message: "entered standby \u2014 awaiting payload dispatch", status: "idle" },
+  { timestamp: "13:45:10", actorLabel: "SCH_DB_VAC", message: "queued for execution \u2014 T-04:12:00 until dispatch", status: "scheduled" },
 ];
 
 export const criticalErrors: CriticalError[] = [
@@ -302,7 +302,7 @@ export const projectDetails: Record<string, ProjectDetail> = {
     priority: "01_CRITICAL",
     workflowCount: 8,
     description:
-      "Autonomous multi-agent orchestration designed for high-frequency cross-channel campaigns. Obsidian Protocol leverages specialized models for semantic brand alignment, dynamic budget allocation, and real-time narrative adaptation across global markets. Currently executing phase 04 of the 'Omni-Presence' roadmap.",
+      "Autonomous multi-agent orchestration designed for high-frequency cross-channel campaigns. Nova Protocol leverages specialized models for semantic brand alignment, dynamic budget allocation, and real-time narrative adaptation across global markets. Currently executing phase 04 of the 'Omni-Presence' roadmap.",
     metrics: {
       activeAgents: { current: 14, max: 20 },
       openTasks: 42,

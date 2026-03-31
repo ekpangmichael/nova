@@ -29,5 +29,15 @@ describe("task-file", () => {
     expect(buildRuntimePrompt("run-456")).toContain(
       ".apm/runs/run-456/TASK.md"
     );
+    expect(
+      buildRuntimePrompt("run-456", {
+        followUpInstructions: "Recent operator follow-up comments:\n1. Confirm the color before changing it.",
+      })
+    ).toContain(
+      "Do not just restate the previous completion"
+    );
+    expect(buildRuntimePrompt("run-456")).toContain(
+      "Only end with the required final output format when the requested work is fully complete in this run."
+    );
   });
 });

@@ -4,8 +4,9 @@ import websocket from "@fastify/websocket";
 import { createDatabaseContext, migrateDatabase } from "@nova/db";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { loadEnv, type AppEnv } from "./env.js";
-import { ApiError } from "./lib/errors.js";
+import { ApiError, unauthorized } from "./lib/errors.js";
 import { apiRoutes } from "./routes/api.js";
+import { AuthService } from "./services/AuthService.js";
 import { NovaService } from "./services/NovaService.js";
 import { RuntimeManager } from "./services/runtime/RuntimeManager.js";
 import type { AppServices } from "./services/types.js";
@@ -16,10 +17,32 @@ type CreateAppOptions = {
   logger?: boolean | FastifyBaseLogger;
 };
 
+const AUTH_COOKIE_NAME = "nova_session";
+
 export type AppContext = {
   app: FastifyInstance;
   env: AppEnv;
   services: AppServices;
+};
+
+const readSessionToken = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+
+const readCookieValue = (cookieHeader: string | undefined, name: string) => {
+  if (!cookieHeader) {
+    return null;
+  }
+
+  const cookies = cookieHeader.split(";");
+
+  for (const cookie of cookies) {
+    const [rawName, ...rawValue] = cookie.trim().split("=");
+    if (rawName === name) {
+      return decodeURIComponent(rawValue.join("="));
+    }
+  }
+
+  return null;
 };
 
 export const createApp = async (
@@ -35,6 +58,7 @@ export const createApp = async (
 
   const websocketHub = new WebsocketHub();
   const runtimeManager = new RuntimeManager(env);
+  const auth = new AuthService(database.db);
   const nova = new NovaService({
     db: database.db,
     env,
@@ -46,6 +70,7 @@ export const createApp = async (
     env,
     db: database.db,
     sqlite: database.client,
+    auth,
     runtimeManager,
     websocketHub,
     nova,
@@ -68,8 +93,48 @@ export const createApp = async (
 
   await app.register(websocket);
 
-  app.get("/ws", { websocket: true }, (socket) => {
+  app.get("/ws", { websocket: true }, async (socket, request) => {
+    if (env.nodeEnv !== "test") {
+      const sessionToken =
+        readSessionToken(request.headers["x-nova-session-token"]) ??
+        readCookieValue(request.headers.cookie, AUTH_COOKIE_NAME);
+
+      if (!sessionToken) {
+        socket.close(1008, "Authentication required.");
+        return;
+      }
+
+      await services.auth.getSessionByToken(sessionToken);
+    }
+
     services.websocketHub.handleConnection(socket);
+  });
+
+  app.addHook("preHandler", async (request) => {
+    request.authSession = null;
+
+    if (env.nodeEnv === "test") {
+      return;
+    }
+
+    if (request.method === "OPTIONS") {
+      return;
+    }
+
+    const publicPaths = ["/api/auth", "/api/health"];
+    if (publicPaths.some((path) => request.url.startsWith(path))) {
+      return;
+    }
+
+    const sessionToken =
+      readSessionToken(request.headers["x-nova-session-token"]) ??
+      readCookieValue(request.headers.cookie, AUTH_COOKIE_NAME);
+
+    if (!sessionToken) {
+      throw unauthorized("Authentication required.");
+    }
+
+    request.authSession = await services.auth.getSessionByToken(sessionToken);
   });
 
   await app.register(apiRoutes, {
@@ -108,6 +173,7 @@ export const createApp = async (
 
   app.addHook("onClose", async () => {
     await services.nova.close();
+    await services.runtimeManager.close();
     await database.close();
   });
 

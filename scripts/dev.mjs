@@ -7,6 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, "..");
 const webDir = resolve(repoRoot, "apps/web");
+const packagesDir = resolve(repoRoot, "packages");
 const webLockPath = resolve(webDir, ".next/dev/lock");
 const desiredWebPort = 3000;
 const desiredServerPort = 4010;
@@ -14,6 +15,59 @@ const desiredBackendUrl = `http://127.0.0.1:${desiredServerPort}/api`;
 const pnpmBin = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+
+const parseDotEnv = (content) => {
+  const result = {};
+
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    let value = line.slice(separatorIndex + 1).trim();
+
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+};
+
+const loadDotEnvFiles = async () => {
+  const env = {};
+  const candidates = [
+    resolve(repoRoot, ".env"),
+    resolve(repoRoot, ".env.local"),
+    resolve(packagesDir, ".env"),
+    resolve(packagesDir, ".env.local"),
+  ];
+
+  for (const candidatePath of candidates) {
+    try {
+      const fileContent = await readFile(candidatePath, "utf8");
+      Object.assign(env, parseDotEnv(fileContent));
+    } catch {
+      // Ignore missing env files.
+    }
+  }
+
+  return env;
+};
 
 const execFileAsync = (file, args, options = {}) =>
   new Promise((resolvePromise, rejectPromise) => {
@@ -27,6 +81,28 @@ const execFileAsync = (file, args, options = {}) =>
     });
   });
 
+const listProcesses = async () => {
+  const { stdout } = await execFileAsync("ps", ["-axo", "pid=,pgid=,command="]);
+
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
+      if (!match) {
+        return null;
+      }
+
+      return {
+        pid: Number(match[1]),
+        pgid: Number(match[2]),
+        command: match[3],
+      };
+    })
+    .filter((entry) => entry && Number.isInteger(entry.pid) && Number.isInteger(entry.pgid));
+};
+
 const getProcessCommand = async (pid) => {
   try {
     const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "command="]);
@@ -36,8 +112,26 @@ const getProcessCommand = async (pid) => {
   }
 };
 
+const getProcessGroupId = async (pid) => {
+  try {
+    const { stdout } = await execFileAsync("ps", ["-p", String(pid), "-o", "pgid="]);
+    const pgid = Number(stdout.trim());
+    return Number.isInteger(pgid) && pgid > 0 ? pgid : null;
+  } catch {
+    return null;
+  }
+};
+
 const isWorkspaceServerProcess = (command) =>
-  command.includes(repoRoot) && command.includes("src/index.ts");
+  command.includes(repoRoot) &&
+  (command.includes("@nova/server run dev") ||
+    command.includes("tsx watch src/index.ts") ||
+    command.includes("src/index.ts"));
+
+const isWorkspaceWebProcess = (command) =>
+  command.includes(repoRoot) &&
+  (command.includes("@nova/web exec next dev") ||
+    command.includes("next dev --hostname 127.0.0.1 --port 3000"));
 
 const readJsonIfPresent = async (path) => {
   try {
@@ -85,6 +179,40 @@ const terminateProcess = async (pid) => {
   }
 };
 
+const terminateProcessGroup = async (pgid) => {
+  try {
+    process.kill(-pgid, "SIGTERM");
+  } catch {
+    return;
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 5000) {
+    try {
+      process.kill(-pgid, 0);
+      await sleep(100);
+    } catch {
+      return;
+    }
+  }
+
+  try {
+    process.kill(-pgid, "SIGKILL");
+  } catch {
+    return;
+  }
+
+  const forceStartedAt = Date.now();
+  while (Date.now() - forceStartedAt < 1000) {
+    try {
+      process.kill(-pgid, 0);
+      await sleep(50);
+    } catch {
+      return;
+    }
+  }
+};
+
 const getPidsListeningOnPort = async (port) => {
   try {
     const { stdout } = await execFileAsync("lsof", [
@@ -102,6 +230,36 @@ const getPidsListeningOnPort = async (port) => {
     }
 
     throw error;
+  }
+};
+
+const stopLingeringWorkspaceProcesses = async () => {
+  const processes = await listProcesses();
+  const serverPgids = new Set();
+  const webPgids = new Set();
+
+  for (const processInfo of processes) {
+    if (!processInfo || processInfo.pid === process.pid) {
+      continue;
+    }
+
+    if (isWorkspaceServerProcess(processInfo.command)) {
+      serverPgids.add(processInfo.pgid);
+    }
+
+    if (isWorkspaceWebProcess(processInfo.command)) {
+      webPgids.add(processInfo.pgid);
+    }
+  }
+
+  for (const pgid of serverPgids) {
+    console.log(`Stopping stale nova server dev group ${pgid}.`);
+    await terminateProcessGroup(pgid);
+  }
+
+  for (const pgid of webPgids) {
+    console.log(`Stopping stale @nova/web dev group ${pgid}.`);
+    await terminateProcessGroup(pgid);
   }
 };
 
@@ -139,7 +297,16 @@ const stopWorkspaceNextServer = async () => {
 
   if (isProcessAlive(lock.pid)) {
     console.log(`Stopping existing @nova/web dev server (PID ${lock.pid}).`);
-    await terminateProcess(lock.pid);
+    const [command, pgid] = await Promise.all([
+      getProcessCommand(lock.pid),
+      getProcessGroupId(lock.pid),
+    ]);
+
+    if (pgid && isWorkspaceWebProcess(command)) {
+      await terminateProcessGroup(pgid);
+    } else {
+      await terminateProcess(lock.pid);
+    }
   }
 
   await rm(webLockPath, { force: true }).catch(() => undefined);
@@ -162,8 +329,22 @@ const prepareServerPort = async () => {
       `Stopping existing nova server on port ${desiredServerPort} (PID ${pids.join(", ")}).`
     );
 
-    for (const pid of pids) {
+    const pgids = new Set();
+    for (let index = 0; index < pids.length; index += 1) {
+      const pid = pids[index];
+      const command = commands[index] ?? "";
+      const pgid = await getProcessGroupId(pid);
+
+      if (pgid && isWorkspaceServerProcess(command)) {
+        pgids.add(pgid);
+        continue;
+      }
+
       await terminateProcess(pid);
+    }
+
+    for (const pgid of pgids) {
+      await terminateProcessGroup(pgid);
     }
 
     return;
@@ -225,6 +406,10 @@ const shutdown = async (children) => {
 };
 
 const main = async () => {
+  const dotEnv = await loadDotEnvFiles();
+  Object.assign(process.env, dotEnv, process.env);
+
+  await stopLingeringWorkspaceProcesses();
   await stopWorkspaceNextServer();
   await prepareServerPort();
   await assertPortIsFree(desiredWebPort, "Web");
@@ -254,6 +439,7 @@ const main = async () => {
     ["--filter", "@nova/server", "run", "dev"],
     {
       PORT: String(desiredServerPort),
+      NOVA_RUNTIME_MODE: process.env.NOVA_RUNTIME_MODE ?? "openclaw",
     }
   );
   children.push(server);

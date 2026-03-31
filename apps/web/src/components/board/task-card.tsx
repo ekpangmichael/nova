@@ -1,4 +1,7 @@
-import Link from "next/link";
+"use client";
+
+import { useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import type { BoardTask, BoardColumn } from "@/types";
 
@@ -20,16 +23,43 @@ export function TaskCard({
   isDone?: boolean;
   projectId?: string;
 }) {
+  const router = useRouter();
+  const pointerStart = useRef<{ x: number; y: number; time: number } | null>(null);
+  const href = projectId ? `/projects/${projectId}/board/${task.id}` : null;
+
+  function handlePointerDown(e: React.PointerEvent) {
+    pointerStart.current = { x: e.clientX, y: e.clientY, time: Date.now() };
+  }
+
+  function handlePointerUp(e: React.PointerEvent) {
+    if (!href || !pointerStart.current) return;
+
+    const dx = Math.abs(e.clientX - pointerStart.current.x);
+    const dy = Math.abs(e.clientY - pointerStart.current.y);
+    const elapsed = Date.now() - pointerStart.current.time;
+
+    // Only navigate if it was a tap (small movement, short duration)
+    if (dx < 5 && dy < 5 && elapsed < 300) {
+      router.push(href);
+    }
+
+    pointerStart.current = null;
+  }
+
   if (isDone) {
     return (
-      <div className="bg-surface-container p-4 rounded-sm border-l-2 border-outline-variant/30 grayscale">
+      <div
+        className={`bg-surface-container p-4 rounded-sm border-l-2 border-outline-variant/30 grayscale ${href ? "cursor-pointer hover:bg-surface-container-high transition-all" : ""}`}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+      >
         <div className="flex justify-between items-start mb-2">
           <span className="text-[10px] font-mono text-outline tracking-tighter line-through">
-            {task.id}
+            {task.displayId ?? task.id}
           </span>
           <Icon name="check_circle" size={14} filled className="text-tertiary" />
         </div>
-        <h4 className="text-sm font-medium text-on-surface-variant/60 leading-snug">
+        <h4 className={`text-sm font-medium leading-snug ${href ? "text-on-surface-variant/60 group-hover:text-secondary transition-colors" : "text-on-surface-variant/60"}`}>
           {task.title}
         </h4>
       </div>
@@ -40,14 +70,16 @@ export function TaskCard({
 
   return (
     <div
-      className={`group ${isInProgress ? "bg-surface-container-lowest ghost" : "bg-surface-container"} p-4 rounded-sm border-l-2 ${borderMap[accentColor]} hover:bg-surface-container-high transition-all cursor-grab active:cursor-grabbing`}
+      className={`group ${isInProgress ? "bg-surface-container-lowest ghost" : "bg-surface-container"} p-4 rounded-sm border-l-2 ${borderMap[accentColor]} hover:bg-surface-container-high transition-all cursor-pointer`}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
     >
       {/* Task ID + drag handle */}
       <div className="flex justify-between items-start mb-2">
         <span
           className={`text-[10px] font-mono tracking-tighter ${isInProgress ? "text-tertiary" : "text-secondary-dim"}`}
         >
-          {task.id}
+          {task.displayId ?? task.id}
         </span>
         {accentColor === "outline-variant" && (
           <Icon
@@ -59,20 +91,9 @@ export function TaskCard({
       </div>
 
       {/* Title */}
-      {projectId ? (
-        <Link
-          href={`/projects/${projectId}/board/${task.id}`}
-          className="block text-sm font-medium text-on-surface leading-snug mb-3 hover:text-secondary transition-colors"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {task.title}
-        </Link>
-      ) : (
-        <h4 className="text-sm font-medium text-on-surface leading-snug mb-3">
-          {task.title}
-        </h4>
-      )}
+      <h4 className="text-sm font-medium text-on-surface leading-snug mb-3 group-hover:text-secondary transition-colors">
+        {task.title}
+      </h4>
 
       {/* Progress bar (In Progress cards) */}
       {task.progress != null && (

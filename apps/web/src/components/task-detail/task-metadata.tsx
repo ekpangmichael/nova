@@ -11,10 +11,10 @@ const priorityDot: Record<string, string> = {
 
 export function TaskMetadata({ task }: { task: TaskDetail }) {
   return (
-    <div className="p-8 bg-surface-container-low/50 rounded-lg space-y-8">
+    <div className="p-5 bg-surface-container ghost space-y-5">
       {/* Assigned Agent */}
-      <div className="space-y-3">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-semibold">
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
           Assigned Agent
         </p>
         <div className="flex items-center gap-3">
@@ -33,19 +33,19 @@ export function TaskMetadata({ task }: { task: TaskDetail }) {
       </div>
 
       {/* Workspace */}
-      <div className="space-y-3">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-semibold">
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
           Workspace
         </p>
-        <div className="flex items-center gap-2 text-on-surface">
-          <Icon name="layers" size={18} className="text-on-surface-variant" />
-          <p className="text-sm font-medium">{task.workspace}</p>
+        <div className="group flex items-center gap-2 text-on-surface min-w-0" title={task.workspace}>
+          <Icon name="layers" size={18} className="text-on-surface-variant shrink-0" />
+          <p className="text-sm font-medium font-mono truncate">{task.workspace}</p>
         </div>
       </div>
 
       {/* Priority */}
-      <div className="space-y-3">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-semibold">
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
           Priority
         </p>
         <div className="flex items-center gap-2">
@@ -57,8 +57,8 @@ export function TaskMetadata({ task }: { task: TaskDetail }) {
       </div>
 
       {/* Deadline */}
-      <div className="space-y-3">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-semibold">
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
           Deadline
         </p>
         <div className="flex items-center gap-2 text-on-surface">

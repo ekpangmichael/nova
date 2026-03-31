@@ -1,11 +1,10 @@
-import type { JsonValue, RuntimeHealth } from "@nova/shared";
-
-export type RuntimeKind =
-  | "openclaw-native"
-  | "openclaw-acp"
-  | "claude-code"
-  | "codex"
-  | "custom";
+import type {
+  JsonValue,
+  RuntimeHealth,
+  RuntimeKind,
+  SandboxMode,
+  ThinkingLevel,
+} from "@nova/shared";
 
 export type RuntimeEventType =
   | "run.accepted"
@@ -34,6 +33,61 @@ export interface RuntimeCapabilities {
   supportsUsageMetrics: boolean;
 }
 
+export type RuntimeSummary = {
+  providerKey: string;
+  kind: RuntimeKind;
+  label: string;
+  available: boolean;
+  health: RuntimeHealth;
+  capabilities: RuntimeCapabilities;
+};
+
+export type RuntimeModelCatalogItem = {
+  id: string;
+  name: string;
+  available: boolean;
+  local: boolean;
+  input: string | null;
+  contextWindow: number | null;
+  tags: string[];
+};
+
+export type RuntimeAgentCatalogItem = {
+  runtimeAgentId: string;
+  workspacePath: string;
+  runtimeStatePath: string;
+  displayName: string | null;
+  defaultModelId: string | null;
+  isDefault: boolean;
+};
+
+export type RuntimeCatalog = {
+  providerKey: string;
+  kind: RuntimeKind;
+  label: string;
+  available: boolean;
+  health: RuntimeHealth;
+  capabilities: RuntimeCapabilities;
+  configPath: string | null;
+  stateDir: string | null;
+  gateway: {
+    reachable: boolean;
+    url: string | null;
+    bindMode: string | null;
+    bindHost: string | null;
+    port: number | null;
+    authMode: string | null;
+  };
+  defaults: {
+    defaultAgentId: string | null;
+    defaultModelId: string | null;
+    workspacePathTemplate: string;
+    runtimeStatePathTemplate: string;
+  };
+  models: RuntimeModelCatalogItem[];
+  existingAgents: RuntimeAgentCatalogItem[];
+};
+
 export type RuntimeAttachment = {
   id: string;
   fileName: string;
@@ -48,6 +102,43 @@ export type ProjectSeed = {
   url: string | null;
 };
 
+export type ProvisionRuntimeAgentInput = {
+  runtimeAgentId: string;
+  workspacePath: string;
+  runtimeStatePath: string;
+  defaultModelId?: string | null;
+  modelOverrideAllowed?: boolean;
+  sandboxMode?: SandboxMode;
+  defaultThinkingLevel?: ThinkingLevel;
+};
+
+export type ProvisionRuntimeAgentResult = {
+  runtimeAgentId: string;
+  workspacePath: string;
+  runtimeStatePath: string;
+  defaultModelId: string | null;
+};
+
+export type RuntimeWorkspaceFile = {
+  relativePath: string;
+  content: string;
+};
+
+export type SyncRuntimeWorkspaceInput = {
+  runtimeAgentId: string;
+  workspacePath: string;
+  runtimeStatePath: string;
+  files: RuntimeWorkspaceFile[];
+  identityDefaults?: {
+    name?: string | null;
+  } | null;
+};
+
+export type SyncRuntimeWorkspaceResult = {
+  files: string[];
+  syncedAt: string;
+};
+
 export interface StartRunInput {
   taskId: string;
   runId: string;
@@ -58,6 +149,7 @@ export interface StartRunInput {
   prompt: string;
   attachments: RuntimeAttachment[];
   modelOverride?: string | null;
+  thinkingLevel?: ThinkingLevel | null;
 }
 
 export interface StartRunResult {
@@ -71,6 +163,20 @@ export interface RuntimeEvent {
   at: string;
   data: Record<string, JsonValue>;
 }
+
+export type RuntimeRunInput = {
+  text: string;
+  idempotencyKey?: string;
+  thinkingLevel?: ThinkingLevel | null;
+};
+
+export type RuntimeSessionHistoryMessage = {
+  id: string | null;
+  seq: number | null;
+  role: "user" | "assistant" | "system";
+  text: string;
+  timestamp: string | null;
+};
 
 export type RuntimeAutomation = {
   id: string;
@@ -101,16 +207,38 @@ export interface RuntimeAdapter {
   kind: RuntimeKind;
   getCapabilities(): Promise<RuntimeCapabilities>;
   getHealth(): Promise<RuntimeHealth>;
+  getSummary(): Promise<RuntimeSummary>;
+  getCatalog(): Promise<RuntimeCatalog>;
+  listRuntimeAgents(): Promise<RuntimeAgentCatalogItem[]>;
   ensureRuntimeReady(): Promise<void>;
-  ensureAgentHome(agentId: string, agentHomePath: string): Promise<void>;
+  provisionAgent(
+    input: ProvisionRuntimeAgentInput
+  ): Promise<ProvisionRuntimeAgentResult>;
+  deleteAgent(runtimeAgentId: string): Promise<void>;
+  ensureAgentWorkspace(
+    agentId: string,
+    workspacePath: string,
+    runtimeStatePath: string
+  ): Promise<void>;
+  syncAgentWorkspace(
+    input: SyncRuntimeWorkspaceInput
+  ): Promise<SyncRuntimeWorkspaceResult>;
   ensureProjectRoot(
     agentId: string,
-    agentHomePath: string,
+    workspacePath: string,
     projectRoot: string,
     seed?: ProjectSeed | null
   ): Promise<void>;
   startRun(input: StartRunInput): Promise<StartRunResult>;
   stopRun(runtimeSessionKey: string): Promise<void>;
+  sendRunInput(
+    runtimeSessionKey: string,
+    input: RuntimeRunInput
+  ): Promise<{ runtimeRunId: string | null; startedAt: string }>;
+  loadSessionHistory(
+    runtimeSessionKey: string,
+    after?: number
+  ): Promise<RuntimeSessionHistoryMessage[]>;
   subscribeRun(
     runtimeSessionKey: string,
     onEvent: (event: RuntimeEvent) => Promise<void> | void

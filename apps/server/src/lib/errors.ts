@@ -19,6 +19,8 @@ export class ApiError extends Error {
 
 export const badRequest = (message: string, details?: unknown) =>
   new ApiError(400, "bad_request", message, details);
+export const unauthorized = (message: string, details?: unknown) =>
+  new ApiError(401, "unauthorized", message, details);
 export const notFound = (message: string, details?: unknown) =>
   new ApiError(404, "not_found", message, details);
 export const conflict = (message: string, details?: unknown) =>

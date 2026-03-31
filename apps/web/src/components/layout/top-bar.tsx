@@ -1,6 +1,44 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 
 export function TopBar() {
+  const pathname = usePathname();
+  type NavLink = {
+    href: string;
+    label: string;
+    isActive: boolean;
+  };
+
+  const navLinks: NavLink[] = [
+    {
+      href: "/",
+      label: "Home",
+      isActive: pathname === "/",
+    },
+    {
+      href: "/projects",
+      label: "Projects",
+      isActive:
+        pathname === "/projects" ||
+        (pathname.startsWith("/projects/") && !pathname.includes("/board")),
+    },
+    {
+      href: "/agents",
+      label: "Agents",
+      isActive: pathname === "/agents" || pathname.startsWith("/agents/"),
+    },
+    {
+      href: "/tasks/new",
+      label: "Tasks",
+      isActive:
+        pathname.includes("/board") ||
+        pathname.startsWith("/tasks"),
+    },
+  ];
+
   return (
     <header className="sticky top-0 z-50 flex items-center justify-between h-14 px-8 bg-surface/60 backdrop-blur-2xl ghost-b">
       <div className="flex items-center gap-6">
@@ -17,26 +55,21 @@ export function TopBar() {
           </kbd>
         </div>
 
-        {/* Project Tabs */}
+        {/* Nav Tabs */}
         <nav className="flex items-center gap-1">
-          <a
-            href="#"
-            className="px-3 py-1 text-[11px] font-medium text-secondary bg-secondary/[0.07] rounded-sm transition-colors"
-          >
-            Project Alpha
-          </a>
-          <a
-            href="#"
-            className="px-3 py-1 text-[11px] text-on-surface-variant/30 hover:text-on-surface-variant/60 transition-colors"
-          >
-            Project Beta
-          </a>
-          <a
-            href="#"
-            className="px-3 py-1 text-[11px] text-on-surface-variant/30 hover:text-on-surface-variant/60 transition-colors"
-          >
-            Codebase Ops
-          </a>
+          {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={
+                  link.isActive
+                    ? "px-3 py-1 text-[11px] font-medium text-secondary bg-secondary/[0.07] rounded-sm transition-colors"
+                    : "px-3 py-1 text-[11px] text-on-surface-variant/30 hover:text-on-surface-variant/60 transition-colors"
+                }
+              >
+                {link.label}
+              </Link>
+            ))}
         </nav>
       </div>
 

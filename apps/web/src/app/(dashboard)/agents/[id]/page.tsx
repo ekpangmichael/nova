@@ -1,10 +1,26 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
-import { agentDetails } from "@/lib/mock-data";
-import { SkillToggles } from "@/components/agents/skill-toggles";
+import { ApiError, getAgent, getProjects } from "@/lib/api";
+import { AgentActionButtons } from "@/components/agents/agent-action-buttons";
 
-export function generateStaticParams() {
-  return Object.keys(agentDetails).map((id) => ({ id }));
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function loadAgent(id: string) {
+  if (!UUID_PATTERN.test(id)) {
+    notFound();
+  }
+
+  try {
+    return await getAgent(id);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) {
+      notFound();
+    }
+
+    throw error;
+  }
 }
 
 export default async function AgentDetailPage({
@@ -13,208 +29,221 @@ export default async function AgentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const agent = agentDetails[id];
+  const [agent, projects] = await Promise.all([loadAgent(id), getProjects()]);
+  const assignments = agent.projectIds.map((projectId) => ({
+    id: projectId,
+    project: projects.find((project) => project.id === projectId) ?? null,
+  }));
 
-  if (!agent) {
-    notFound();
-  }
-
-  const isError = agent.status === "critical";
+  const statusConfig: Record<string, { className: string }> = {
+    idle: { className: "bg-secondary/15 text-secondary" },
+    working: { className: "bg-tertiary/15 text-tertiary" },
+    paused: { className: "bg-on-surface-variant/10 text-on-surface-variant" },
+    error: { className: "bg-error/15 text-error" },
+    offline: { className: "bg-on-surface-variant/10 text-on-surface-variant" },
+  };
+  const statusStyle = statusConfig[agent.status] ?? statusConfig.idle;
 
   return (
-    <section className="max-w-5xl mx-auto w-full">
-      {/* Hero Section */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-16 anim-1">
-        <div className="flex items-center gap-8">
-          <div className="relative">
-            <div className={`w-24 h-24 bg-surface-container-high p-0.5 flex items-center justify-center ${isError ? "ring-1 ring-error/20" : ""}`}>
-              <Icon
-                name={agent.icon}
-                size={40}
-                className={isError ? "text-error/60" : "text-secondary/60"}
-              />
-            </div>
-            <div
-              className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-surface ${isError ? "bg-error" : "bg-secondary"}`}
-            />
+    <div className="max-w-5xl mx-auto">
+      {/* Back */}
+      <Link
+        href="/agents"
+        className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm mb-8 anim-1"
+      >
+        <Icon name="arrow_back" size={16} />
+        Agent Fleet
+      </Link>
+
+      {/* Header */}
+      <div className="flex flex-col gap-4 mb-10 anim-1">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className={`font-mono text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-sm ${statusStyle.className}`}>
+              {agent.status}
+            </span>
+            <span className="font-mono text-[10px] text-on-surface-variant/40 uppercase tracking-widest">
+              {agent.runtime.runtimeAgentId}
+            </span>
+          </div>
+          <AgentActionButtons agentId={agent.id} agentName={agent.name} />
+        </div>
+        <div className="flex items-center gap-5">
+          <div className="w-16 h-16 bg-surface-container-high flex items-center justify-center rounded-sm shrink-0">
+            <Icon name={agent.avatar || "smart_toy"} size={30} className="text-secondary" />
           </div>
           <div>
-            <h2 className="text-4xl font-light tracking-tight text-on-surface">
+            <h1 className="text-3xl font-extrabold tracking-tighter text-on-surface">
               {agent.name}
-            </h2>
-            <div className="flex items-center gap-4 mt-2">
-              <span className="text-xs font-mono text-on-surface-variant uppercase tracking-widest">
-                ID: {agent.agentCode}
-              </span>
-              <span className="h-1 w-1 rounded-full bg-outline-variant" />
-              <span
-                className={`text-xs font-mono uppercase tracking-widest ${isError ? "text-error" : "text-secondary"}`}
-              >
-                {agent.statusLabel}
-              </span>
-            </div>
+            </h1>
+            <p className="text-on-surface-variant text-sm mt-1">{agent.role}</p>
           </div>
-        </div>
-        <div className="flex gap-4">
-          <button className="px-6 py-2 text-xs uppercase tracking-widest bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-all">
-            Export
-          </button>
-          <button className="px-6 py-2 text-xs uppercase tracking-widest bg-primary text-on-primary font-semibold hover:opacity-80 transition-all active:scale-95 rounded-sm">
-            Deploy Agent
-          </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-12 ghost-b mb-12 anim-1">
-        <button className="pb-4 text-xs uppercase tracking-[0.2em] text-on-surface border-b border-secondary">
-          Config
-        </button>
-        <button className="pb-4 text-xs uppercase tracking-[0.2em] text-on-surface-variant hover:text-on-surface transition-colors">
-          Skills
-        </button>
-        <button className="pb-4 text-xs uppercase tracking-[0.2em] text-on-surface-variant hover:text-on-surface transition-colors">
-          History
-        </button>
-        <button className="pb-4 text-xs uppercase tracking-[0.2em] text-on-surface-variant hover:text-on-surface transition-colors">
-          Analytics
-        </button>
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 anim-2">
+        <div className="bg-surface-container-low p-5 ghost">
+          <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
+            Model
+          </p>
+          <p className="font-mono text-sm text-on-surface truncate">
+            {agent.runtime.defaultModelId ?? "Not set"}
+          </p>
+        </div>
+        <div className="bg-surface-container-low p-5 ghost">
+          <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
+            Thinking
+          </p>
+          <p className="font-mono text-sm text-on-surface">
+            {agent.runtime.defaultThinkingLevel}
+          </p>
+        </div>
+        <div className="bg-surface-container-low p-5 ghost">
+          <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
+            Projects
+          </p>
+          <p className="text-3xl font-black tracking-tight text-on-surface">
+            {agent.projectIds.length}
+          </p>
+        </div>
+        <div className="bg-surface-container-low p-5 ghost">
+          <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
+            Last Synced
+          </p>
+          <p className="font-mono text-sm text-on-surface">
+            {agent.lastSyncedAt
+              ? new Intl.DateTimeFormat("en", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                }).format(new Date(agent.lastSyncedAt))
+              : "Never"}
+          </p>
+        </div>
       </div>
 
-      {/* Main Grid: Config (7) + Sidebar (5) */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        {/* Left: Configuration */}
-        <div className="md:col-span-7 space-y-12 anim-2">
-          {/* Primary Identity */}
-          <div className="space-y-8">
-            <div>
-              <label className="block text-xs uppercase tracking-widest text-on-surface-variant mb-2">
-                Primary Identity
-              </label>
-              <p className="w-full py-2 border-b border-outline-variant/30 text-on-surface text-lg font-light">
-                {agent.role}
-              </p>
-            </div>
+      {/* Content */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          {/* Directive */}
+          <section className="bg-surface-container p-6 ghost anim-3">
+            <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
+              Directive
+            </h3>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
+              {agent.systemInstructions || "No system instructions configured."}
+            </p>
+          </section>
 
-            <div className="grid grid-cols-2 gap-8">
-              <div>
-                <label className="block text-xs uppercase tracking-widest text-on-surface-variant mb-2">
-                  Model Engine
-                </label>
-                <p className="text-on-surface py-2 border-b border-outline-variant/10">
-                  {agent.model}
-                </p>
-              </div>
-              <div>
-                <label className="block text-xs uppercase tracking-widest text-on-surface-variant mb-2">
-                  Thinking Level
-                </label>
-                <p className="text-on-surface py-2 border-b border-outline-variant/10">
-                  {agent.thinkingLevel}
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs uppercase tracking-widest text-on-surface-variant mb-2">
-                Core Directive
-              </label>
-              <div className="bg-surface-container-low p-4">
-                <p className="text-on-surface-variant text-sm leading-relaxed">
-                  {agent.coreDirective}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Operational Skills */}
-          <SkillToggles initialSkills={agent.skills} />
-        </div>
-
-        {/* Right: History & Metrics */}
-        <div className="md:col-span-5 space-y-12 anim-3">
-          {/* Recent History */}
-          <div className="bg-surface-container-low p-8">
-            <div className="flex justify-between items-center mb-8">
-              <h3 className="text-xs uppercase tracking-widest text-on-surface-variant">
-                Recent History
+          {/* Persona & Tools */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 anim-3">
+            <section className="bg-surface-container p-6 ghost">
+              <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
+                Persona
               </h3>
-              <span className="text-[10px] text-secondary underline cursor-pointer">
-                View Archive
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
+                {agent.personaText || "Not configured."}
+              </p>
+            </section>
+            <section className="bg-surface-container p-6 ghost">
+              <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
+                Tools
+              </h3>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
+                {agent.toolsText || "Not configured."}
+              </p>
+            </section>
+          </div>
+
+          {/* Runtime Paths */}
+          <section className="bg-surface-container p-6 ghost anim-4">
+            <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
+              Runtime Paths
+            </h3>
+            <dl className="space-y-4 text-sm">
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
+                  Workspace
+                </dt>
+                <dd className="font-mono text-on-surface break-all">
+                  {agent.runtime.workspacePath}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
+                  Runtime State
+                </dt>
+                <dd className="font-mono text-on-surface break-all">
+                  {agent.runtime.runtimeStatePath}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+
+        {/* Sidebar */}
+        <aside className="space-y-6 anim-3">
+          {/* Runtime Settings */}
+          <div className="bg-surface-container p-6 ghost">
+            <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
+              Runtime Settings
+            </h3>
+            <dl className="space-y-4 text-sm">
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-on-surface-variant">Model Override</dt>
+                <dd className="text-on-surface font-mono text-[13px]">
+                  {agent.runtime.modelOverrideAllowed ? "Allowed" : "Locked"}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-on-surface-variant">Sandbox</dt>
+                <dd className="text-on-surface font-mono text-[13px]">{agent.runtime.sandboxMode}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-on-surface-variant">Runtime</dt>
+                <dd className="text-on-surface font-mono text-[13px]">{agent.runtime.kind}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Project Assignments */}
+          <div className="bg-surface-container p-6 ghost">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface">
+                Project Assignments
+              </h3>
+              <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-widest">
+                {agent.projectIds.length} linked
               </span>
             </div>
-            <div className="space-y-6">
-              {agent.history.map((entry, i) => (
-                <div key={i} className="flex justify-between items-baseline">
-                  <div className="space-y-1">
-                    <p className="text-sm text-on-surface font-light">
-                      {entry.task}
-                    </p>
-                    <p className="text-[10px] uppercase tracking-tighter text-on-surface-variant">
-                      {entry.date}
-                    </p>
-                  </div>
-                  <span
-                    className={`text-[10px] uppercase tracking-widest ${
-                      entry.status === "success"
-                        ? "text-secondary"
-                        : "text-error"
-                    }`}
+            {assignments.length > 0 ? (
+              <div className="space-y-3">
+                {assignments.map(({ id: projectId, project }) => (
+                  <Link
+                    key={projectId}
+                    href={`/projects/${projectId}`}
+                    className="block bg-surface-container-low px-4 py-3 hover:border-secondary/20 ghost transition-colors"
                   >
-                    {entry.status === "success" ? "Success" : "Fail"}
-                  </span>
-                </div>
-              ))}
-            </div>
+                    <div className="text-sm font-semibold text-on-surface">
+                      {project?.name ?? projectId}
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] text-on-surface-variant/60">
+                      {projectId}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-on-surface-variant">
+                Not assigned to any project yet.
+              </p>
+            )}
           </div>
-
-          {/* Mini Analytics */}
-          <div className="space-y-6 px-4">
-            <div className="space-y-4">
-              <div className="flex justify-between text-xs font-mono uppercase text-on-surface-variant">
-                <span>Compute Load</span>
-                <span>{agent.computeLoad}%</span>
-              </div>
-              <div className="w-full h-px bg-outline-variant/20 relative">
-                <div
-                  className={`absolute left-0 top-0 h-px ${isError ? "bg-error" : "bg-secondary"}`}
-                  style={{ width: `${agent.computeLoad}%` }}
-                />
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div className="flex justify-between text-xs font-mono uppercase text-on-surface-variant">
-                <span>Reliability</span>
-                <span>{agent.reliability}%</span>
-              </div>
-              <div className="w-full h-px bg-outline-variant/20 relative">
-                <div
-                  className="absolute left-0 top-0 h-px bg-secondary"
-                  style={{ width: `${agent.reliability}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        </aside>
       </div>
-
-      {/* Footer */}
-      <footer className="mt-24 pt-6 ghost-t flex justify-between items-center text-[10px] uppercase tracking-widest text-on-surface-variant anim-4">
-        <div className="flex gap-8">
-          <span>Latency: {agent.latency}</span>
-          <span>Uptime: {agent.uptime}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${isError ? "bg-error" : "bg-secondary animate-pulse"}`}
-          />
-          <span>
-            {isError
-              ? "Connection Degraded"
-              : "Encrypted Connection Established"}
-          </span>
-        </div>
-      </footer>
-    </section>
+    </div>
   );
 }

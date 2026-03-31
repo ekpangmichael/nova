@@ -1,14 +1,23 @@
-import { mkdir, access } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type {
+  ProvisionRuntimeAgentInput,
+  ProvisionRuntimeAgentResult,
+  RuntimeRunInput,
+  RuntimeSessionHistoryMessage,
   RuntimeAdapter,
+  RuntimeAgentCatalogItem,
   RuntimeAutomation,
   RuntimeAutomationRun,
   RuntimeCapabilities,
+  RuntimeCatalog,
   RuntimeEvent,
+  RuntimeSummary,
   StartRunInput,
   StartRunResult,
   ProjectSeed,
+  SyncRuntimeWorkspaceInput,
+  SyncRuntimeWorkspaceResult,
 } from "@nova/runtime-adapter";
 import type { RuntimeHealth } from "@nova/shared";
 import { buildRuntimePrompt } from "../../lib/task-file.js";
@@ -23,11 +32,20 @@ type SessionState = {
   listeners: Set<Listener>;
   timers: NodeJS.Timeout[];
   closed: boolean;
+  history: RuntimeSessionHistoryMessage[];
 };
 
 export class MockRuntimeAdapter implements RuntimeAdapter {
   kind = "openclaw-native" as const;
   #sessions = new Map<string, SessionState>();
+  #runtimeAgents = new Map<
+    string,
+    {
+      workspacePath: string;
+      runtimeStatePath: string;
+      defaultModelId: string | null;
+    }
+  >();
 
   async getCapabilities(): Promise<RuntimeCapabilities> {
     return {
@@ -51,27 +69,149 @@ export class MockRuntimeAdapter implements RuntimeAdapter {
       gatewayUrl: null,
       binaryPath: "mock",
       binaryVersion: null,
+      configPath: "/tmp/mock-openclaw/openclaw.json",
+      stateDir: "/tmp/mock-openclaw",
       details: ["Mock runtime adapter is active."],
       updatedAt: nowIso(),
     };
+  }
+
+  async getSummary(): Promise<RuntimeSummary> {
+    const [health, capabilities] = await Promise.all([
+      this.getHealth(),
+      this.getCapabilities(),
+    ]);
+
+    return {
+      providerKey: "openclaw",
+      kind: this.kind,
+      label: "OpenClaw",
+      available: true,
+      health,
+      capabilities,
+    };
+  }
+
+  async getCatalog(): Promise<RuntimeCatalog> {
+    const summary = await this.getSummary();
+
+    return {
+      providerKey: summary.providerKey,
+      kind: summary.kind,
+      label: summary.label,
+      available: summary.available,
+      health: summary.health,
+      capabilities: summary.capabilities,
+      configPath: "/tmp/mock-openclaw/openclaw.json",
+      stateDir: "/tmp/mock-openclaw",
+      gateway: {
+        reachable: true,
+        url: "ws://127.0.0.1:18789",
+        bindMode: "loopback",
+        bindHost: "127.0.0.1",
+        port: 18789,
+        authMode: "server-only",
+      },
+      defaults: {
+        defaultAgentId: this.#runtimeAgents.keys().next().value ?? null,
+        defaultModelId: "openai-codex/gpt-5.4",
+        workspacePathTemplate: "/tmp/mock-openclaw/workspace-<agentId>",
+        runtimeStatePathTemplate: "/tmp/mock-openclaw/agents/<agentId>/agent",
+      },
+      models: [
+        {
+          id: "openai-codex/gpt-5.4",
+          name: "GPT-5.4",
+          available: true,
+          local: false,
+          input: "text+image",
+          contextWindow: 272000,
+          tags: ["default", "configured"],
+        },
+      ],
+      existingAgents: await this.listRuntimeAgents(),
+    };
+  }
+
+  async listRuntimeAgents(): Promise<RuntimeAgentCatalogItem[]> {
+    return [...this.#runtimeAgents.entries()].map(([runtimeAgentId, value]) => ({
+      runtimeAgentId,
+      workspacePath: value.workspacePath,
+      runtimeStatePath: value.runtimeStatePath,
+      displayName: runtimeAgentId,
+      defaultModelId: value.defaultModelId,
+      isDefault: false,
+    }));
   }
 
   async ensureRuntimeReady(): Promise<void> {
     return;
   }
 
-  async ensureAgentHome(_agentId: string, agentHomePath: string): Promise<void> {
-    await mkdir(agentHomePath, { recursive: true });
-    await mkdir(`${agentHomePath}/.apm`, { recursive: true });
+  async provisionAgent(
+    input: ProvisionRuntimeAgentInput
+  ): Promise<ProvisionRuntimeAgentResult> {
+    this.#runtimeAgents.set(input.runtimeAgentId, {
+      workspacePath: input.workspacePath,
+      runtimeStatePath: input.runtimeStatePath,
+      defaultModelId: input.defaultModelId ?? null,
+    });
+
+    await this.ensureAgentWorkspace(
+      input.runtimeAgentId,
+      input.workspacePath,
+      input.runtimeStatePath
+    );
+
+    return {
+      runtimeAgentId: input.runtimeAgentId,
+      workspacePath: input.workspacePath,
+      runtimeStatePath: input.runtimeStatePath,
+      defaultModelId: input.defaultModelId ?? null,
+    };
+  }
+
+  async deleteAgent(runtimeAgentId: string): Promise<void> {
+    this.#runtimeAgents.delete(runtimeAgentId);
+  }
+
+  async ensureAgentWorkspace(
+    _agentId: string,
+    workspacePath: string,
+    runtimeStatePath: string
+  ): Promise<void> {
+    await mkdir(workspacePath, { recursive: true });
+    await mkdir(runtimeStatePath, { recursive: true });
+    await mkdir(`${workspacePath}/.apm`, { recursive: true });
+  }
+
+  async syncAgentWorkspace(
+    input: SyncRuntimeWorkspaceInput
+  ): Promise<SyncRuntimeWorkspaceResult> {
+    await this.ensureAgentWorkspace(
+      input.runtimeAgentId,
+      input.workspacePath,
+      input.runtimeStatePath
+    );
+    for (const file of input.files) {
+      const absolutePath = `${input.workspacePath}/${file.relativePath}`;
+      await mkdir(dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, file.content, "utf8");
+    }
+
+    return {
+      files: input.files.map((file) => file.relativePath),
+      syncedAt: nowIso(),
+    };
   }
 
   async ensureProjectRoot(
     _agentId: string,
-    agentHomePath: string,
+    workspacePath: string,
     projectRoot: string,
     seed?: ProjectSeed | null
   ): Promise<void> {
-    const fullPath = resolveProjectPath(agentHomePath, projectRoot).absolutePath;
+    const fullPath = resolveProjectPath(workspacePath, projectRoot).absolutePath;
     await mkdir(dirname(fullPath), { recursive: true });
 
     try {
@@ -97,6 +237,15 @@ export class MockRuntimeAdapter implements RuntimeAdapter {
       listeners: new Set(),
       timers: [],
       closed: false,
+      history: [
+        {
+          id: `user-${input.runId}`,
+          seq: 1,
+          role: "user",
+          text: input.prompt,
+          timestamp: nowIso(),
+        },
+      ],
     };
 
     this.#sessions.set(runtimeSessionKey, state);
@@ -126,7 +275,7 @@ export class MockRuntimeAdapter implements RuntimeAdapter {
       at: nowIso(),
       data: {
         taskId: input.taskId,
-        prompt: buildRuntimePrompt(input.runId),
+        prompt: input.prompt,
       },
     });
     schedule(25, {
@@ -171,6 +320,7 @@ export class MockRuntimeAdapter implements RuntimeAdapter {
       at: nowIso(),
       data: {
         message: "Mock runtime completed the requested work.",
+        externalMessageId: `assistant-${input.runId}`,
       },
     });
     schedule(175, {
@@ -222,6 +372,90 @@ export class MockRuntimeAdapter implements RuntimeAdapter {
         reason: "Stopped by user.",
       },
     });
+  }
+
+  async sendRunInput(runtimeSessionKey: string, input: RuntimeRunInput) {
+    const session = this.#sessions.get(runtimeSessionKey);
+
+    if (!session) {
+      throw new Error(`Mock session ${runtimeSessionKey} does not exist.`);
+    }
+
+    const startedAt = nowIso();
+    const runtimeRunId = input.idempotencyKey ?? `mock-input-${Date.now()}`;
+    session.history.push({
+      id: runtimeRunId,
+      seq: session.history.length + 1,
+      role: "user",
+      text: input.text,
+      timestamp: startedAt,
+    });
+
+    const schedule = (
+      delay: number,
+      event: RuntimeEvent,
+      afterEmit?: () => void
+    ) => {
+      const timer = setTimeout(() => {
+        if (session.closed) {
+          return;
+        }
+
+        void this.#emit(runtimeSessionKey, event).then(() => {
+          afterEmit?.();
+        });
+      }, delay);
+
+      session.timers.push(timer);
+    };
+
+    schedule(25, {
+      type: "message.delta",
+      at: nowIso(),
+      data: {
+        delta: `Acknowledged: ${input.text.slice(0, 80)}`,
+        runtimeRunId,
+      },
+    });
+    schedule(
+      75,
+      {
+        type: "message.completed",
+        at: nowIso(),
+        data: {
+          message: `Mock agent received: ${input.text}`,
+          externalMessageId: `assistant-${runtimeRunId}`,
+          runtimeRunId,
+        },
+      },
+      () => {
+        session.history.push({
+          id: `assistant-${runtimeRunId}`,
+          seq: session.history.length + 1,
+          role: "assistant",
+          text: `Mock agent received: ${input.text}`,
+          timestamp: nowIso(),
+        });
+      }
+    );
+
+    return {
+      runtimeRunId,
+      startedAt,
+    };
+  }
+
+  async loadSessionHistory(
+    runtimeSessionKey: string,
+    after = 0
+  ): Promise<RuntimeSessionHistoryMessage[]> {
+    const session = this.#sessions.get(runtimeSessionKey);
+
+    if (!session) {
+      return [];
+    }
+
+    return session.history.filter((message) => (message.seq ?? 0) > after);
   }
 
   async subscribeRun(

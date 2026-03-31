@@ -2,6 +2,19 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { parseOrThrow } from "../lib/http.js";
 
+const runtimeSchema = z.object({
+  kind: z.literal("openclaw-native").default("openclaw-native"),
+  runtimeAgentId: z.string().min(1).optional(),
+  workspacePath: z.string().min(1).optional(),
+  runtimeStatePath: z.string().min(1).optional(),
+  defaultModelId: z.string().min(1).nullable().optional(),
+  modelOverrideAllowed: z.boolean().optional(),
+  sandboxMode: z.enum(["off", "docker", "other"]).optional(),
+  defaultThinkingLevel: z
+    .enum(["off", "minimal", "low", "medium", "high", "xhigh"])
+    .optional(),
+});
+
 const createAgentSchema = z.object({
   name: z.string().min(1),
   role: z.string().min(1),
@@ -14,15 +27,11 @@ const createAgentSchema = z.object({
   toolsText: z.string().nullable().optional(),
   heartbeatText: z.string().nullable().optional(),
   memoryText: z.string().nullable().optional(),
-  runtimeAgentId: z.string().optional(),
-  agentHomePath: z.string().optional(),
-  modelProvider: z.string().nullable().optional(),
-  modelName: z.string().nullable().optional(),
-  modelOverrideAllowed: z.boolean().optional(),
-  sandboxMode: z.enum(["off", "docker", "other"]).optional(),
+  runtime: runtimeSchema.optional(),
 });
 
 const patchAgentSchema = createAgentSchema.partial().extend({
+  runtime: runtimeSchema.partial().optional(),
   status: z.enum(["idle", "working", "paused", "error", "offline"]).optional(),
 });
 
@@ -47,6 +56,12 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     const { agentId } = parseOrThrow(paramsSchema, request.params);
     const body = parseOrThrow(patchAgentSchema, request.body);
     return app.services.nova.patchAgent(agentId, body);
+  });
+
+  app.delete("/agents/:agentId", async (request, reply) => {
+    const { agentId } = parseOrThrow(paramsSchema, request.params);
+    await app.services.nova.deleteAgent(agentId);
+    return reply.code(204).send();
   });
 
   app.post("/agents/:agentId/sync-home", async (request) => {

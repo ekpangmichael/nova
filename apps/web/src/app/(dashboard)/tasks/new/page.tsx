@@ -1,123 +1,313 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Icon } from "@/components/ui/icon";
+import {
+  ApiError,
+  type ApiAgent,
+  type ApiProjectSummary,
+  assignAgentToProject,
+  createTask,
+  getAgents,
+  getProjects,
+  selectExecutionTargetDirectory,
+  uploadTaskAttachment,
+} from "@/lib/api";
 
-const agents = [
-  "Sigma-04 (Strategic)",
-  "Delta-9 (Creative)",
-  "Agent Vulcan (Deployment)",
-  "Psi-Alpha (Integrity)",
-  "Orion-X (Content)",
-  "SyncMaster (Orchestration)",
+const priorities = [
+  { label: "Low", value: "low" as const },
+  { label: "Medium", value: "medium" as const },
+  { label: "High", value: "high" as const },
+  { label: "Urgent", value: "critical" as const },
 ];
 
-const priorities = ["Low", "Medium", "High", "Urgent"];
+function combineDescription(description: string, technicalInstructions: string) {
+  const trimmedDescription = description.trim();
+  const trimmedTechnicalInstructions = technicalInstructions.trim();
 
-export default function NewTaskPage() {
+  if (!trimmedTechnicalInstructions) {
+    return trimmedDescription;
+  }
+
+  if (!trimmedDescription) {
+    return `Technical Instructions\n${trimmedTechnicalInstructions}`;
+  }
+
+  return `${trimmedDescription}\n\nTechnical Instructions\n${trimmedTechnicalInstructions}`;
+}
+
+function NewTaskPageContent() {
   const router = useRouter();
-  const [priority, setPriority] = useState("Medium");
+  const searchParams = useSearchParams();
+  const queryProjectId = searchParams.get("projectId");
+
+  const [projects, setProjects] = useState<ApiProjectSummary[]>([]);
+  const [agents, setAgents] = useState<ApiAgent[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [assignedAgentId, setAssignedAgentId] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<(typeof priorities)[number]["value"]>("medium");
+  const [executionTargetOverride, setExecutionTargetOverride] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [labels, setLabels] = useState("");
+  const [technicalInstructions, setTechnicalInstructions] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPickingDirectory, setIsPickingDirectory] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOptions() {
+      setIsLoading(true);
+
+      try {
+        const [nextProjects, nextAgents] = await Promise.all([getProjects(), getAgents()]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setProjects(nextProjects);
+        setAgents(nextAgents);
+
+        const initialProjectId =
+          (queryProjectId &&
+          nextProjects.some((project) => project.id === queryProjectId)
+            ? queryProjectId
+            : nextProjects[0]?.id) ?? "";
+        const initialProject =
+          nextProjects.find((project) => project.id === initialProjectId) ?? null;
+        setSelectedProjectId(initialProjectId);
+        setExecutionTargetOverride(initialProject?.projectRoot ?? "");
+
+        const initialAgentId =
+          nextAgents.find((agent) => agent.projectIds.includes(initialProjectId))?.id ??
+          nextAgents[0]?.id ??
+          "";
+        setAssignedAgentId(initialAgentId);
+        setErrorMessage(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setErrorMessage(
+          error instanceof ApiError
+            ? error.message
+            : "Unable to load projects and agents."
+        );
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [queryProjectId]);
+
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  const assignedAgents = agents.filter((agent) => agent.projectIds.includes(selectedProjectId));
+  const unassignedAgents = agents.filter((agent) => !agent.projectIds.includes(selectedProjectId));
+  const selectedAgent = agents.find((agent) => agent.id === assignedAgentId) ?? null;
+  const displayedExecutionTarget = executionTargetOverride || selectedProject?.projectRoot || "";
+
+  async function handleBrowseExecutionTarget() {
+    if (!selectedProject) {
+      setErrorMessage("Select a project first.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsPickingDirectory(true);
+
+    try {
+      const selection = await selectExecutionTargetDirectory();
+
+      if (selection.path) {
+        setExecutionTargetOverride(selection.path);
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to open the directory picker. Try again."
+      );
+    } finally {
+      setIsPickingDirectory(false);
+    }
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(null);
+
+    if (!selectedProjectId) {
+      setErrorMessage("Select a project first.");
+      return;
+    }
+
+    if (!assignedAgentId) {
+      setErrorMessage("Select an agent.");
+      return;
+    }
+
+    if (!title.trim()) {
+      setErrorMessage("Objective title is required.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      if (selectedAgent && !selectedAgent.projectIds.includes(selectedProjectId)) {
+        await assignAgentToProject(selectedProjectId, selectedAgent.id);
+      }
+
+      const task = await createTask({
+        projectId: selectedProjectId,
+        title: title.trim(),
+        description: combineDescription(description, technicalInstructions),
+        priority,
+        assignedAgentId,
+        executionTargetOverride: executionTargetOverride.trim() || null,
+        dueAt: dueAt || null,
+        labels: labels
+          .split(",")
+          .map((label) => label.trim())
+          .filter(Boolean),
+      });
+
+      for (const file of selectedFiles) {
+        await uploadTaskAttachment(task.id, file);
+      }
+
+      router.push(`/projects/${selectedProjectId}/board/${task.id}`);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiError
+          ? error.message
+          : "Unable to create the task."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Back */}
+    <div className="mx-auto max-w-4xl">
       <Link
-        href="/projects/proj-mkt-auto/board"
-        className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm mb-6 anim-1"
+        href={selectedProjectId ? `/projects/${selectedProjectId}/board` : "/projects"}
+        className="mb-6 flex items-center gap-1.5 text-sm text-on-surface-variant transition-colors hover:text-on-surface"
       >
         <Icon name="arrow_back" size={16} />
         Task Board
       </Link>
 
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-outline mb-4 anim-1">
-        <span className="text-xs font-mono tracking-widest uppercase">
+      <div className="mb-4 flex items-center gap-2 text-outline">
+        <span className="text-xs font-mono uppercase tracking-widest">
           System.Task.Init
         </span>
         <span className="h-px w-8 bg-outline-variant/30" />
       </div>
 
-      {/* Header */}
-      <header className="mb-16 anim-1">
-        <h1 className="text-4xl font-light text-on-surface tracking-tight leading-tight">
+      <header className="mb-16">
+        <h1 className="text-4xl font-light leading-tight tracking-tight text-on-surface">
           Create New Task
         </h1>
-        <p className="mt-4 text-on-surface-variant font-light max-w-xl leading-relaxed">
-          Define parameters for the next objective. The system will orchestrate
-          the underlying nodes to ensure execution integrity.
+        <p className="mt-4 max-w-xl font-light leading-relaxed text-on-surface-variant">
+          Define the objective, attach supporting context, and route the work to an
+          agent already assigned to the selected project.
         </p>
       </header>
 
-      <form
-        className="space-y-24"
-        onSubmit={(e) => {
-          e.preventDefault();
-          router.back();
-        }}
-      >
-        {/* 01 Task Definition */}
-        <section className="space-y-8 anim-2">
+      {errorMessage ? (
+        <div className="mb-8 rounded-sm border border-error/30 bg-error/8 px-4 py-3 text-sm text-error">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      <form className="space-y-24" onSubmit={handleSubmit}>
+        <section className="space-y-8">
           <div className="flex items-baseline gap-4 ghost-b pb-2">
-            <span className="text-secondary font-mono text-xs">01</span>
+            <span className="font-mono text-xs text-secondary">01</span>
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
               Task Definition
             </h2>
           </div>
           <div className="space-y-12">
-            <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-2">
-                Objective Title
-              </label>
-              <input
-                type="text"
-                className="w-full bg-transparent text-2xl font-light text-on-surface placeholder:text-on-surface-variant/20 pb-4 border-none focus:ring-0 focus:outline-none"
-                style={{ borderBottom: "1px solid rgba(72,72,75,0.2)" }}
-                onFocus={(e) =>
-                  (e.target.style.borderBottom = "1px solid #7b99ff")
-                }
-                onBlur={(e) =>
-                  (e.target.style.borderBottom =
-                    "1px solid rgba(72,72,75,0.2)")
-                }
-                placeholder="Quantum Ledger Synchronization"
-              />
+            <div className="grid gap-8 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+                  Project
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedProjectId}
+                    onChange={(event) => {
+                      const nextProjectId = event.target.value;
+                      const nextProject =
+                        projects.find((project) => project.id === nextProjectId) ?? null;
+                      const nextAssignedAgents = agents.filter((agent) =>
+                        agent.projectIds.includes(nextProjectId)
+                      );
+                      setSelectedProjectId(nextProjectId);
+                      setExecutionTargetOverride(nextProject?.projectRoot ?? "");
+                      setAssignedAgentId(
+                        nextAssignedAgents[0]?.id ?? agents[0]?.id ?? ""
+                      );
+                    }}
+                    disabled={isLoading}
+                    className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
+                  >
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Icon
+                    name="expand_more"
+                    size={18}
+                    className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-outline"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+                  Objective Title
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="w-full border-none border-b pb-4 text-2xl font-light text-on-surface placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
+                  style={{ borderBottom: "1px solid rgba(72,72,75,0.2)" }}
+                  placeholder="Quantum Ledger Synchronization"
+                />
+              </div>
             </div>
+
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-4">
+              <label className="mb-4 block text-[10px] uppercase tracking-widest text-outline">
                 Description &amp; Intent
               </label>
-              <div className="bg-surface-container-low ghost p-6 min-h-[200px]">
-                <div className="flex gap-4 mb-4 ghost-b pb-4">
-                  <button
-                    type="button"
-                    className="text-outline hover:text-on-surface transition-colors"
-                  >
-                    <Icon name="format_bold" size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    className="text-outline hover:text-on-surface transition-colors"
-                  >
-                    <Icon name="format_italic" size={18} />
-                  </button>
-                  <button
-                    type="button"
-                    className="text-outline hover:text-on-surface transition-colors"
-                  >
-                    <Icon name="link" size={18} />
-                  </button>
-                  <span className="w-px h-4 bg-outline-variant/20 my-auto" />
-                  <button
-                    type="button"
-                    className="text-outline hover:text-on-surface transition-colors"
-                  >
-                    <Icon name="format_list_bulleted" size={18} />
-                  </button>
-                </div>
+              <div className="min-h-[200px] bg-surface-container-low p-6 ghost">
                 <textarea
-                  className="w-full bg-transparent border-none resize-y text-on-surface-variant leading-relaxed min-h-[120px] focus:ring-0 focus:outline-none placeholder:text-on-surface-variant/20"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  className="min-h-[120px] w-full resize-y border-none bg-transparent leading-relaxed text-on-surface-variant placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
                   placeholder="Describe the desired outcome and critical success factors..."
                 />
               </div>
@@ -125,101 +315,172 @@ export default function NewTaskPage() {
           </div>
         </section>
 
-        {/* 02 Execution Parameters */}
-        <section className="space-y-8 anim-2">
+        <section className="space-y-8">
           <div className="flex items-baseline gap-4 ghost-b pb-2">
-            <span className="text-secondary font-mono text-xs">02</span>
+            <span className="font-mono text-xs text-secondary">02</span>
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
               Execution Parameters
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+          <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-2">
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
                 Assign Agent
               </label>
               <div className="relative">
-                <select className="w-full appearance-none bg-surface-container-low ghost px-4 py-3 text-on-surface text-sm focus:ring-0 focus:outline-none">
-                  <option>Select Autonomous Agent</option>
-                  {agents.map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
+                <select
+                  value={assignedAgentId}
+                  onChange={(event) => setAssignedAgentId(event.target.value)}
+                  disabled={isLoading || agents.length === 0}
+                  className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
+                >
+                  {agents.length === 0 ? (
+                    <option value="">No agents available</option>
+                  ) : null}
+                  {assignedAgents.length > 0 ? (
+                    <optgroup label="Assigned to this project">
+                      {assignedAgents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name} ({agent.role})
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {unassignedAgents.length > 0 ? (
+                    <optgroup label="Available to assign">
+                      {unassignedAgents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name} ({agent.role}) - will be assigned
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                 </select>
                 <Icon
                   name="expand_more"
                   size={18}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-outline pointer-events-none"
+                  className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-outline"
                 />
               </div>
+              <p className="mt-2 text-xs text-on-surface-variant">
+                {selectedAgent && !selectedAgent.projectIds.includes(selectedProjectId)
+                  ? "This agent is not assigned yet. Nova will assign them to the project before creating the task."
+                  : "Pick an assigned agent or choose another agent and Nova will assign them automatically."}
+              </p>
             </div>
+
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-2">
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
                 Priority
               </label>
               <div className="flex gap-2">
-                {priorities.map((p) => (
+                {priorities.map((entry) => (
                   <button
-                    key={p}
+                    key={entry.value}
                     type="button"
-                    onClick={() => setPriority(p)}
-                    className={`flex-1 py-2.5 text-[10px] uppercase tracking-widest font-medium transition-all ${
-                      priority === p
-                        ? p === "Urgent"
+                    onClick={() => setPriority(entry.value)}
+                    className={`flex-1 py-2.5 text-[10px] font-medium uppercase tracking-widest transition-all ${
+                      priority === entry.value
+                        ? entry.value === "critical"
                           ? "bg-error/15 text-error"
                           : "bg-secondary/15 text-secondary"
                         : "bg-surface-container-low text-on-surface-variant/40 hover:text-on-surface-variant"
                     }`}
                   >
-                    {p}
+                    {entry.label}
                   </button>
                 ))}
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+
+          <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-2">
-                Workspace Path
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+                Execution Target Override
               </label>
-              <div className="flex items-center bg-surface-container-low ghost px-4 py-3">
-                <input
-                  type="text"
-                  className="bg-transparent border-none p-0 text-sm font-mono text-secondary focus:ring-0 focus:outline-none w-full"
-                  defaultValue="/root/projects/alpha/tasks/"
-                />
-                <Icon
-                  name="folder_open"
-                  size={18}
-                  className="text-outline shrink-0 ml-2"
-                />
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={handleBrowseExecutionTarget}
+                  disabled={isPickingDirectory || isSubmitting || !selectedProject}
+                  className="w-full flex items-center gap-3 bg-surface-container-low px-4 py-3 text-left ghost transition-all disabled:cursor-wait disabled:opacity-70"
+                >
+                  <Icon
+                    name={isPickingDirectory ? "progress_activity" : "folder_open"}
+                    size={16}
+                    className="shrink-0 text-on-surface-variant"
+                  />
+                  <span
+                    className={`flex-1 truncate text-sm font-mono ${
+                      displayedExecutionTarget
+                        ? "text-secondary"
+                        : "text-on-surface-variant/40"
+                    }`}
+                  >
+                    {displayedExecutionTarget || "Select a directory..."}
+                  </span>
+                </button>
+                <div className="flex items-center justify-between gap-3 text-xs text-on-surface-variant">
+                  <p>
+                    {executionTargetOverride
+                      ? "Using a task-specific execution directory."
+                      : "Using the project root by default."}
+                  </p>
+                  {executionTargetOverride ? (
+                    <button
+                      type="button"
+                      onClick={() => setExecutionTargetOverride("")}
+                      className="font-mono text-[10px] uppercase tracking-[0.18em] text-secondary transition-colors hover:text-on-surface"
+                    >
+                      Use project root
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
+
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-2">
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
                 Deadline
               </label>
               <input
                 type="date"
-                className="w-full bg-surface-container-low ghost px-4 py-3 text-on-surface text-sm focus:ring-0 focus:outline-none"
+                value={dueAt}
+                onChange={(event) => setDueAt(event.target.value)}
+                onClick={(event) => (event.target as HTMLInputElement).showPicker()}
+                className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 cursor-pointer"
               />
             </div>
           </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+              Labels
+            </label>
+            <input
+              type="text"
+              value={labels}
+              onChange={(event) => setLabels(event.target.value)}
+              className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost placeholder:text-on-surface-variant/25 focus:outline-none focus:ring-0"
+              placeholder="backend, monitor, launch"
+            />
+          </div>
         </section>
 
-        {/* 03 Context & Attachments */}
-        <section className="space-y-8 anim-3">
+        <section className="space-y-8">
           <div className="flex items-baseline gap-4 ghost-b pb-2">
-            <span className="text-secondary font-mono text-xs">03</span>
+            <span className="font-mono text-xs text-secondary">03</span>
             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
               Context &amp; Attachments
             </h2>
           </div>
           <div className="space-y-8">
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-4">
+              <label className="mb-4 block text-[10px] uppercase tracking-widest text-outline">
                 Reference Materials
               </label>
-              <div className="border-2 border-dashed border-outline-variant/10 p-12 text-center hover:border-secondary/40 transition-colors cursor-pointer bg-surface-container-low/30">
+              <label className="block cursor-pointer border-2 border-dashed border-outline-variant/10 bg-surface-container-low/30 p-12 text-center transition-colors hover:border-secondary/40">
                 <div className="mb-4">
                   <Icon
                     name="upload_file"
@@ -227,59 +488,87 @@ export default function NewTaskPage() {
                     className="text-outline-variant"
                   />
                 </div>
-                <p className="text-on-surface-variant text-sm">
+                <p className="text-sm text-on-surface-variant">
                   Drop contextual assets here or{" "}
                   <span className="text-secondary underline underline-offset-4">
                     browse system files
                   </span>
                 </p>
-                <p className="text-[10px] text-outline mt-2 uppercase tracking-tighter">
-                  PDF, JSON, MD, TXT (Max 50MB)
+                <p className="mt-2 text-[10px] uppercase tracking-tighter text-outline">
+                  PDF, JSON, MD, TXT (Max 25MB each)
                 </p>
-              </div>
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    setSelectedFiles(Array.from(event.target.files ?? []));
+                  }}
+                />
+              </label>
+              {selectedFiles.length > 0 ? (
+                <div className="mt-4 space-y-2 text-sm text-on-surface-variant">
+                  {selectedFiles.map((file) => (
+                    <div
+                      key={`${file.name}-${file.size}`}
+                      className="flex items-center justify-between rounded-sm bg-surface-container-low px-4 py-3 ghost"
+                    >
+                      <span>{file.name}</span>
+                      <span className="font-mono text-[11px]">
+                        {(file.size / 1024).toFixed(1)} KB
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
+
             <div>
-              <label className="block text-[10px] uppercase tracking-widest text-outline mb-2">
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
                 Technical Instructions
               </label>
               <textarea
-                className="w-full bg-surface-container-low ghost px-6 py-4 text-on-surface-variant leading-relaxed min-h-[120px] resize-y focus:ring-0 focus:outline-none placeholder:text-on-surface-variant/20"
-                placeholder="Specific constraints, edge cases, or API keys..."
+                value={technicalInstructions}
+                onChange={(event) => setTechnicalInstructions(event.target.value)}
+                className="min-h-[120px] w-full resize-y bg-surface-container-low px-6 py-4 leading-relaxed text-on-surface-variant ghost placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
+                placeholder="Specific constraints, edge cases, or implementation notes..."
               />
             </div>
           </div>
         </section>
 
-        {/* Footer Actions */}
-        <footer className="pt-12 ghost-t flex flex-col md:flex-row items-center justify-between gap-6 anim-4">
+        <footer className="flex flex-col items-center justify-between gap-6 pt-12 ghost-t md:flex-row">
           <button
             type="button"
             onClick={() => router.back()}
-            className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-2 group"
+            className="group flex items-center gap-2 text-on-surface-variant transition-colors hover:text-on-surface"
           >
             <Icon
               name="west"
               size={20}
-              className="group-hover:-translate-x-1 transition-transform"
+              className="transition-transform group-hover:-translate-x-1"
             />
             <span className="text-sm font-medium">Discard Draft</span>
           </button>
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <button
-              type="button"
-              className="flex-1 md:flex-none px-8 py-3 bg-surface-container-highest text-on-surface rounded-sm text-sm font-medium hover:bg-surface-bright transition-colors"
-            >
-              Save as Template
-            </button>
+          <div className="flex w-full items-center gap-4 md:w-auto">
             <button
               type="submit"
-              className="flex-1 md:flex-none px-12 py-3 bg-primary text-on-primary rounded-sm text-sm font-bold active:scale-[0.98] transition-all"
+              disabled={isSubmitting || isLoading || agents.length === 0}
+              className="flex-1 rounded-sm bg-primary px-12 py-3 text-sm font-bold text-on-primary transition-all active:scale-[0.98] disabled:opacity-50 md:flex-none"
             >
-              Initialize Task
+              {isSubmitting ? "Initializing…" : "Initialize Task"}
             </button>
           </div>
         </footer>
       </form>
     </div>
+  );
+}
+
+export default function NewTaskPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-on-surface-variant">Loading task form…</div>}>
+      <NewTaskPageContent />
+    </Suspense>
   );
 }

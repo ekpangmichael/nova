@@ -1,14 +1,14 @@
 import type { RunStatus, TaskStatus } from "@nova/shared";
 
 const manualTaskTransitions: Record<TaskStatus, TaskStatus[]> = {
-  backlog: ["todo", "canceled"],
-  todo: ["backlog", "canceled"],
-  in_progress: ["canceled"],
-  in_review: ["done", "canceled"],
+  backlog: ["todo", "blocked", "canceled"],
+  todo: ["backlog", "in_progress", "blocked", "paused", "canceled"],
+  in_progress: ["todo", "in_review", "blocked", "paused", "canceled"],
+  in_review: ["in_progress", "done", "blocked", "paused", "canceled"],
   done: ["in_review"],
-  failed: ["todo"],
-  blocked: ["todo"],
-  paused: ["todo"],
+  failed: ["todo", "backlog", "blocked", "canceled"],
+  blocked: ["todo", "in_progress", "canceled"],
+  paused: ["todo", "in_progress", "canceled"],
   canceled: [],
 };
 

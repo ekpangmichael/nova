@@ -6,6 +6,10 @@ const statusDot: Record<TaskDetail["status"], string> = {
   in_progress: "bg-primary animate-pulse",
   in_review: "bg-tertiary",
   done: "bg-tertiary",
+  blocked: "bg-primary",
+  paused: "bg-outline",
+  failed: "bg-error",
+  canceled: "bg-outline-variant",
 };
 
 export function TaskHeader({ task }: { task: TaskDetail }) {
@@ -20,7 +24,7 @@ export function TaskHeader({ task }: { task: TaskDetail }) {
           {task.statusLabel}
         </span>
       </div>
-      <h2 className="text-4xl font-extrabold text-on-surface tracking-tighter leading-[1.1]">
+      <h2 className="text-2xl font-extrabold text-on-surface tracking-tight leading-snug">
         {task.title}
       </h2>
     </div>

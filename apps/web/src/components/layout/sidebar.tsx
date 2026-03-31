@@ -1,29 +1,123 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
-
-const overviewLinks = [
-  { href: "/", icon: "dashboard", label: "Dashboard" },
-  { href: "/projects", icon: "folder_open", label: "Projects", count: "3" },
-  { href: "/agents", icon: "smart_toy", label: "Agents", count: "12", countColor: "text-tertiary/40" },
-  { href: "/projects/proj-mkt-auto/board", icon: "view_kanban", label: "Tasks" },
-];
+import { signOut } from "@/lib/auth-client";
+import {
+  getStoredBoardProjectId,
+  onStoredBoardProjectIdChange,
+} from "@/lib/board-project-preference";
+import { getAgents, getProjects, type ApiAgent, type ApiProjectSummary } from "@/lib/api";
 
 const systemLinks = [
-  { href: "/logs", icon: "terminal", label: "Logs" },
-  { href: "/workspaces", icon: "workspaces", label: "Workspaces" },
   { href: "/settings", icon: "settings", label: "Settings" },
 ];
 
-export function Sidebar() {
+type SidebarProps = {
+  sessionUser: {
+    displayName: string;
+    email: string;
+  };
+};
+
+export function Sidebar({ sessionUser }: SidebarProps) {
+  const router = useRouter();
+  const [projects, setProjects] = useState<ApiProjectSummary[]>([]);
+  const [agents, setAgents] = useState<ApiAgent[]>([]);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [preferredBoardProjectId, setPreferredBoardProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPreferredBoardProjectId(getStoredBoardProjectId());
+
+    return onStoredBoardProjectIdChange((projectId) => {
+      setPreferredBoardProjectId(projectId);
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void Promise.all([getProjects(), getAgents()])
+      .then(([projectRows, agentRows]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setProjects(projectRows);
+        setAgents(agentRows);
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setProjects([]);
+        setAgents([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const preferredBoardProject =
+    projects.find((project) => project.id === preferredBoardProjectId) ?? null;
+  const primaryBoardProject = preferredBoardProject ?? projects[0] ?? null;
+  const overviewLinks: NavLink[] = [
+    { href: "/", icon: "dashboard", label: "Dashboard", match: "dashboard" },
+    {
+      href: "/projects",
+      icon: "folder_open",
+      label: "Projects",
+      count: projects.length > 0 ? String(projects.length) : undefined,
+      match: "projects",
+    },
+    {
+      href: "/agents",
+      icon: "smart_toy",
+      label: "Agents",
+      count: agents.length > 0 ? String(agents.length) : undefined,
+      countColor: "text-tertiary/40",
+      match: "agents",
+    },
+    {
+      href: primaryBoardProject ? `/projects/${primaryBoardProject.id}/board` : "/projects",
+      icon: "view_kanban",
+      label: "Tasks",
+      match: "tasks",
+    },
+  ];
+
+  const initial =
+    sessionUser.displayName.trim().charAt(0) ||
+    sessionUser.email.trim().charAt(0) ||
+    "O";
+
+  const handleSignOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+
+    try {
+      await signOut();
+      router.push("/signin");
+      router.refresh();
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-surface-container-low flex flex-col z-40 ghost-r">
       {/* Brand */}
       <div className="px-6 pt-7 pb-5">
         <h1 className="text-[17px] font-extrabold tracking-[-0.04em] text-on-surface">
-          Obsidian
+          Nova
         </h1>
         <p className="font-mono text-[8px] text-primary/25 uppercase tracking-[0.25em] mt-0.5">
           Protocol v1.0
@@ -39,17 +133,34 @@ export function Sidebar() {
       {/* User Profile */}
       <div className="p-4 ghost-t">
         <div className="flex items-center gap-3 p-2.5 bg-surface-container-lowest/20 rounded-lg">
-          <div className="w-8 h-8 rounded-sm bg-surface-container-high overflow-hidden">
-            <div className="w-full h-full bg-surface-container-highest" />
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-secondary/30 to-tertiary/20 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-on-surface/70">
+              {initial.toUpperCase()}
+            </span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-semibold truncate text-on-surface/70">
-              admin_root
+              {sessionUser.displayName}
             </p>
-            <p className="font-mono text-[7px] text-tertiary/50 uppercase tracking-[0.15em]">
-              Authenticated
+            <p className="font-mono text-[7px] text-on-surface-variant/30 uppercase tracking-[0.15em]">
+              {sessionUser.email}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              void handleSignOut();
+            }}
+            disabled={isSigningOut}
+            className="flex items-center gap-1 rounded-sm px-2 py-1 text-[10px] font-mono uppercase tracking-[0.16em] text-on-surface-variant/35 transition-colors hover:text-on-surface-variant/65 disabled:opacity-50"
+          >
+            <Icon
+              name="logout"
+              size={14}
+              className="shrink-0"
+            />
+            <span>{isSigningOut ? "Exit..." : "Exit"}</span>
+          </button>
         </div>
       </div>
     </aside>
@@ -62,6 +173,7 @@ type NavLink = {
   label: string;
   count?: string;
   countColor?: string;
+  match?: "dashboard" | "projects" | "agents" | "tasks";
 };
 
 function NavSection({ label, links }: { label: string; links: NavLink[] }) {
@@ -74,13 +186,21 @@ function NavSection({ label, links }: { label: string; links: NavLink[] }) {
       </p>
       {links.map((link) => {
         const isActive =
-          link.href === "/"
+          link.match === "dashboard"
             ? pathname === "/"
-            : pathname.startsWith(link.href);
+            : link.match === "tasks"
+              ? pathname.startsWith("/projects/") && pathname.includes("/board")
+              : link.match === "projects"
+                ? pathname === "/projects" || (pathname.startsWith("/projects/") && !pathname.includes("/board"))
+                : link.match === "agents"
+                  ? pathname === "/agents" || pathname.startsWith("/agents/")
+                  : link.href === "/"
+                    ? pathname === "/"
+                    : pathname.startsWith(link.href);
 
         return (
           <Link
-            key={link.href}
+            key={`${label}-${link.label}`}
             href={link.href}
             className={
               isActive

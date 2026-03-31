@@ -42,8 +42,8 @@ function StatCard({ stat }: { stat: HeroStat }) {
             {stat.unit}
           </span>
         </div>
-        {stat.label === "Global Throughput" && <Sparkline />}
-        {stat.label === "Resource Load" && <MiniBarChart />}
+        {stat.label === "Completed This Week" && <Sparkline />}
+        {stat.label === "Open Tasks" && <MiniBarChart />}
       </div>
     </div>
   );

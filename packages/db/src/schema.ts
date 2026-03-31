@@ -12,10 +12,13 @@ import type {
   CommentAuthorType,
   ProjectSeedType,
   ProjectStatus,
+  RuntimeKind,
   RunStatus,
   SandboxMode,
+  TaskCommentSource,
   TaskPriority,
   TaskStatus,
+  ThinkingLevel,
 } from "@nova/shared";
 
 const requiredText = (name: string) => text(name).notNull();
@@ -34,6 +37,47 @@ export const settings = sqliteTable("settings", {
   createdAt: createdAtColumn(),
   updatedAt: updatedAtColumn(),
 });
+
+export const users = sqliteTable(
+  "users",
+  {
+    id: requiredText("id").primaryKey(),
+    email: requiredText("email"),
+    displayName: requiredText("display_name"),
+    passwordHash: requiredText("password_hash"),
+    googleSub: text("google_sub"),
+    lastSignedInAt: text("last_signed_in_at"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => ({
+    emailUnique: uniqueIndex("users_email_unique").on(table.email),
+    googleSubUnique: uniqueIndex("users_google_sub_unique").on(table.googleSub),
+  })
+);
+
+export const userSessions = sqliteTable(
+  "user_sessions",
+  {
+    id: requiredText("id").primaryKey(),
+    userId: requiredText("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    sessionTokenHash: requiredText("session_token_hash"),
+    expiresAt: requiredText("expires_at"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => ({
+    tokenUnique: uniqueIndex("user_sessions_token_hash_unique").on(
+      table.sessionTokenHash
+    ),
+    userExpiryIndex: index("user_sessions_user_expiry_idx").on(
+      table.userId,
+      table.expiresAt
+    ),
+  })
+);
 
 export const projects = sqliteTable(
   "projects",
@@ -70,9 +114,10 @@ export const agents = sqliteTable(
     toolsText: text("tools_text"),
     heartbeatText: text("heartbeat_text"),
     memoryText: text("memory_text"),
-    runtimeKind: requiredText("runtime_kind").$type<"openclaw-native">(),
+    runtimeKind: requiredText("runtime_kind").$type<RuntimeKind>(),
     runtimeAgentId: requiredText("runtime_agent_id"),
     agentHomePath: requiredText("agent_home_path"),
+    runtimeStatePath: requiredText("runtime_state_path"),
     modelProvider: text("model_provider"),
     modelName: text("model_name"),
     modelOverrideAllowed: integer("model_override_allowed", {
@@ -81,6 +126,7 @@ export const agents = sqliteTable(
       .notNull()
       .default(true),
     sandboxMode: requiredText("sandbox_mode").$type<SandboxMode>(),
+    defaultThinkingLevel: requiredText("default_thinking_level").$type<ThinkingLevel>(),
     status: requiredText("status").$type<AgentStatus>(),
     currentTaskId: text("current_task_id"),
     lastSeenAt: text("last_seen_at"),
@@ -89,7 +135,8 @@ export const agents = sqliteTable(
   },
   (table) => ({
     slugUnique: uniqueIndex("agents_slug_unique").on(table.slug),
-    runtimeAgentIdUnique: uniqueIndex("agents_runtime_agent_id_unique").on(
+    runtimeAgentIdUnique: uniqueIndex("agents_runtime_runtime_agent_id_unique").on(
+      table.runtimeKind,
       table.runtimeAgentId
     ),
   })
@@ -179,11 +226,26 @@ export const taskComments = sqliteTable("task_comments", {
   taskId: requiredText("task_id").references(() => tasks.id, {
     onDelete: "cascade",
   }),
+  taskRunId: text("task_run_id").references(() => taskRuns.id, {
+    onDelete: "set null",
+  }),
   authorType: requiredText("author_type").$type<CommentAuthorType>(),
   authorId: text("author_id"),
+  source: requiredText("source").$type<TaskCommentSource>(),
+  externalMessageId: text("external_message_id"),
   body: requiredText("body"),
   createdAt: createdAtColumn(),
-});
+}, (table) => ({
+  taskCreatedIndex: index("task_comments_task_created_idx").on(
+    table.taskId,
+    table.createdAt
+  ),
+  externalMessageUnique: uniqueIndex("task_comments_run_source_external_unique").on(
+    table.taskRunId,
+    table.source,
+    table.externalMessageId
+  ),
+}));
 
 export const taskAttachments = sqliteTable("task_attachments", {
   id: requiredText("id").primaryKey(),
@@ -209,7 +271,7 @@ export const taskRuns = sqliteTable(
     agentId: requiredText("agent_id").references(() => agents.id, {
       onDelete: "restrict",
     }),
-    runtimeKind: requiredText("runtime_kind").$type<"openclaw-native">(),
+    runtimeKind: requiredText("runtime_kind").$type<RuntimeKind>(),
     runtimeSessionKey: requiredText("runtime_session_key"),
     runtimeRunId: text("runtime_run_id"),
     status: requiredText("status").$type<RunStatus>(),
@@ -260,6 +322,8 @@ export const runArtifacts = sqliteTable("run_artifacts", {
   }),
   path: requiredText("path"),
   kind: requiredText("kind").$type<ArtifactKind>(),
+  label: text("label"),
+  summary: text("summary"),
   mimeType: text("mime_type"),
   sha256: text("sha256"),
   sizeBytes: integer("size_bytes"),
@@ -268,6 +332,8 @@ export const runArtifacts = sqliteTable("run_artifacts", {
 
 export const schema = {
   settings,
+  users,
+  userSessions,
   projects,
   agents,
   projectAgents,

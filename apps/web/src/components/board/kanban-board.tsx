@@ -1,20 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
+  PointerSensor,
   pointerWithin,
   useDroppable,
-  type DragStartEvent,
+  useSensor,
+  useSensors,
   type DragEndEvent,
   type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { SortableTaskCard } from "./sortable-task-card";
 import { TaskCard } from "./task-card";
 import { Icon } from "@/components/ui/icon";
+import { ApiError, patchTask } from "@/lib/api";
 import type { BoardColumn, BoardTask } from "@/types";
 
 const countBg: Record<BoardColumn["accentColor"], string> = {
@@ -24,171 +29,409 @@ const countBg: Record<BoardColumn["accentColor"], string> = {
   primary: "bg-surface-container-high text-primary",
 };
 
-export function KanbanBoard({ initialColumns, projectId }: { initialColumns: BoardColumn[]; projectId: string }) {
+type BackendTaskStatus =
+  | "backlog"
+  | "todo"
+  | "in_progress"
+  | "in_review"
+  | "done"
+  | "failed"
+  | "blocked"
+  | "paused"
+  | "canceled";
+
+export function KanbanBoard({
+  initialColumns,
+  projectId,
+}: {
+  initialColumns: BoardColumn[];
+  projectId: string;
+}) {
+  const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
   const [columns, setColumns] = useState(initialColumns);
-  const [activeTask, setActiveTask] = useState<{ task: BoardTask; accentColor: BoardColumn["accentColor"] } | null>(null);
+  const [activeTask, setActiveTask] = useState<{
+    task: BoardTask;
+    accentColor: BoardColumn["accentColor"];
+    sourceColumnId: string;
+  } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const columnsRef = useRef(initialColumns);
+  const dragSnapshotRef = useRef<BoardColumn[] | null>(null);
+  const dragSourceColumnIdRef = useRef<string | null>(null);
+  const dragDestinationColumnIdRef = useRef<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    columnsRef.current = initialColumns;
+    setColumns(initialColumns);
+  }, [initialColumns]);
 
   function findColumn(taskId: string) {
-    return columns.find((col) => col.tasks.some((t) => t.id === taskId));
+    return columnsRef.current.find((column) =>
+      column.tasks.some((task) => task.id === taskId)
+    );
   }
 
   function findColumnById(columnId: string) {
-    return columns.find((c) => c.id === columnId);
+    return columnsRef.current.find((column) => column.id === columnId);
+  }
+
+  function applyColumnsUpdate(updater: (previousColumns: BoardColumn[]) => BoardColumn[]) {
+    setColumns((previousColumns) => {
+      const nextColumns = updater(previousColumns);
+      columnsRef.current = nextColumns;
+      return nextColumns;
+    });
   }
 
   function handleDragStart(event: DragStartEvent) {
     const { active } = event;
-    const col = findColumn(active.id as string);
-    if (col) {
-      const task = col.tasks.find((t) => t.id === active.id);
-      if (task) {
-        setActiveTask({ task, accentColor: col.accentColor });
-      }
+    const sourceColumn = findColumn(active.id as string);
+
+    if (!sourceColumn) {
+      return;
     }
+
+    const task = sourceColumn.tasks.find((entry) => entry.id === active.id);
+
+    if (!task) {
+      return;
+    }
+
+    dragSnapshotRef.current = columnsRef.current.map((column) => ({
+      ...column,
+      tasks: [...column.tasks],
+    }));
+    dragSourceColumnIdRef.current = sourceColumn.id;
+    dragDestinationColumnIdRef.current = sourceColumn.id;
+    setErrorMessage(null);
+    const nextActiveTask = {
+      task,
+      accentColor: sourceColumn.accentColor,
+      sourceColumnId: sourceColumn.id,
+    };
+    setActiveTask(nextActiveTask);
   }
 
   function handleDragOver(event: DragOverEvent) {
     const { active, over } = event;
-    if (!over) return;
+
+    if (!over) {
+      return;
+    }
 
     const activeId = active.id as string;
     const overId = over.id as string;
+    const sourceColumn = findColumn(activeId);
 
-    const sourceCol = findColumn(activeId);
-    if (!sourceCol) return;
+    if (!sourceColumn) {
+      return;
+    }
 
-    // Check if hovering over a column droppable (empty column case)
-    // or over a task in a different column
     const isOverColumn = !!findColumnById(overId);
-    const destCol = isOverColumn
+    const destinationColumn = isOverColumn
       ? findColumnById(overId)
       : findColumn(overId);
 
-    if (!destCol || sourceCol.id === destCol.id) return;
+    if (!destinationColumn || sourceColumn.id === destinationColumn.id) {
+      return;
+    }
 
-    const task = sourceCol.tasks.find((t) => t.id === activeId);
-    if (!task) return;
+    dragDestinationColumnIdRef.current = destinationColumn.id;
 
-    setColumns((prev) =>
-      prev.map((col) => {
-        if (col.id === sourceCol.id) {
+    const task = sourceColumn.tasks.find((entry) => entry.id === activeId);
+
+    if (!task) {
+      return;
+    }
+
+    applyColumnsUpdate((previousColumns) =>
+      previousColumns.map((column) => {
+        if (column.id === sourceColumn.id) {
           return {
-            ...col,
-            tasks: col.tasks.filter((t) => t.id !== activeId),
-            count: col.count - 1,
+            ...column,
+            tasks: column.tasks.filter((entry) => entry.id !== activeId),
+            count: column.count - 1,
           };
         }
-        if (col.id === destCol.id) {
-          // If dropping onto a column (empty), append to end
-          // If dropping onto a task, insert at that position
-          const overIndex = col.tasks.findIndex((t) => t.id === overId);
-          const insertIndex = overIndex >= 0 ? overIndex : col.tasks.length;
-          const newTasks = [...col.tasks];
-          newTasks.splice(insertIndex, 0, task);
-          return { ...col, tasks: newTasks, count: col.count + 1 };
+
+        if (column.id === destinationColumn.id) {
+          const overIndex = column.tasks.findIndex((entry) => entry.id === overId);
+          const insertIndex = overIndex >= 0 ? overIndex : column.tasks.length;
+          const nextTasks = [...column.tasks];
+          nextTasks.splice(insertIndex, 0, task);
+          return {
+            ...column,
+            tasks: nextTasks,
+            count: column.count + 1,
+          };
         }
-        return col;
+
+        return column;
       })
     );
   }
 
-  function handleDragEnd(event: DragEndEvent) {
+  async function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     setActiveTask(null);
 
-    if (!over) return;
+    if (!over) {
+      if (dragSnapshotRef.current) {
+        columnsRef.current = dragSnapshotRef.current;
+        setColumns(dragSnapshotRef.current);
+      }
+      dragSnapshotRef.current = null;
+      dragSourceColumnIdRef.current = null;
+      dragDestinationColumnIdRef.current = null;
+      return;
+    }
 
     const activeId = active.id as string;
     const overId = over.id as string;
+    const sourceColumnId =
+      dragSourceColumnIdRef.current ??
+      (typeof active.data.current?.sortable?.containerId === "string"
+        ? active.data.current.sortable.containerId
+        : dragSnapshotRef.current?.find((column) =>
+              column.tasks.some((task) => task.id === activeId)
+            )?.id ?? null);
+    const currentColumnId =
+      columnsRef.current.find((column) =>
+        column.tasks.some((task) => task.id === activeId)
+      )?.id ??
+      dragDestinationColumnIdRef.current;
 
-    if (activeId === overId) return;
+    if (!currentColumnId) {
+      if (dragSnapshotRef.current) {
+        columnsRef.current = dragSnapshotRef.current;
+        setColumns(dragSnapshotRef.current);
+      }
+      dragSnapshotRef.current = null;
+      dragSourceColumnIdRef.current = null;
+      dragDestinationColumnIdRef.current = null;
+      return;
+    }
 
-    // Handle drop onto empty column
-    if (findColumnById(overId)) return;
+    if (sourceColumnId && sourceColumnId !== currentColumnId) {
+      try {
+        await patchTask(activeId, {
+          status: currentColumnId as BackendTaskStatus,
+        });
+        router.refresh();
+      } catch (error) {
+        if (dragSnapshotRef.current) {
+          columnsRef.current = dragSnapshotRef.current;
+          setColumns(dragSnapshotRef.current);
+        }
+        setErrorMessage(
+          error instanceof ApiError
+            ? error.message
+            : "Unable to update the task status."
+        );
+      } finally {
+        dragSnapshotRef.current = null;
+        dragSourceColumnIdRef.current = null;
+        dragDestinationColumnIdRef.current = null;
+      }
+      return;
+    }
 
-    const col = findColumn(activeId);
-    if (!col) return;
+    if (activeId === overId) {
+      dragSnapshotRef.current = null;
+      dragSourceColumnIdRef.current = null;
+      dragDestinationColumnIdRef.current = null;
+      return;
+    }
 
-    // Reorder within same column
-    const oldIndex = col.tasks.findIndex((t) => t.id === activeId);
-    const newIndex = col.tasks.findIndex((t) => t.id === overId);
+    const column = findColumn(activeId);
+
+    if (!column) {
+      dragSnapshotRef.current = null;
+      return;
+    }
+
+    const oldIndex = column.tasks.findIndex((task) => task.id === activeId);
+    const newIndex = column.tasks.findIndex((task) => task.id === overId);
 
     if (oldIndex >= 0 && newIndex >= 0) {
-      setColumns((prev) =>
-        prev.map((c) => {
-          if (c.id !== col.id) return c;
-          const newTasks = [...c.tasks];
-          const [moved] = newTasks.splice(oldIndex, 1);
-          newTasks.splice(newIndex, 0, moved);
-          return { ...c, tasks: newTasks };
+      applyColumnsUpdate((previousColumns) =>
+        previousColumns.map((entry) => {
+          if (entry.id !== column.id) {
+            return entry;
+          }
+
+          const nextTasks = [...entry.tasks];
+          const [moved] = nextTasks.splice(oldIndex, 1);
+          nextTasks.splice(newIndex, 0, moved);
+          return {
+            ...entry,
+            tasks: nextTasks,
+          };
         })
       );
     }
+
+    dragSnapshotRef.current = null;
+    dragSourceColumnIdRef.current = null;
+    dragDestinationColumnIdRef.current = null;
+  }
+
+  if (!isMounted) {
+    return (
+      <>
+        {errorMessage ? (
+          <div className="px-6 pt-4">
+            <div className="rounded-sm border border-error/30 bg-error/8 px-4 py-3 text-sm text-error">
+              {errorMessage}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex min-w-max items-start gap-2 p-6 pb-24">
+          {columns.map((column) => (
+            <StaticColumn key={column.id} column={column} projectId={projectId} />
+          ))}
+        </div>
+      </>
+    );
   }
 
   return (
     <DndContext
+      sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex h-full p-6 gap-6 min-w-max">
+      {errorMessage ? (
+        <div className="px-6 pt-4">
+          <div className="rounded-sm border border-error/30 bg-error/8 px-4 py-3 text-sm text-error">
+            {errorMessage}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex min-w-max items-start gap-2 p-6 pb-24">
         {columns.map((column) => (
           <DroppableColumn key={column.id} column={column} projectId={projectId} />
         ))}
       </div>
 
       <DragOverlay>
-        {activeTask && (
-          <div className="opacity-90 rotate-[2deg] scale-105">
-            <TaskCard
-              task={activeTask.task}
-              accentColor={activeTask.accentColor}
-            />
+        {activeTask ? (
+          <div className="rotate-[2deg] scale-105 opacity-90">
+            <TaskCard task={activeTask.task} accentColor={activeTask.accentColor} />
           </div>
-        )}
+        ) : null}
       </DragOverlay>
     </DndContext>
   );
 }
 
-function DroppableColumn({ column, projectId }: { column: BoardColumn; projectId: string }) {
-  const taskIds = column.tasks.map((t) => t.id);
+function ColumnHeader({
+  column,
+  projectId,
+}: {
+  column: BoardColumn;
+  projectId: string;
+}) {
+  return (
+    <div className="flex items-center justify-between px-1">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">
+          {column.title}
+        </span>
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[10px] font-mono ${countBg[column.accentColor]}`}
+        >
+          {String(column.count).padStart(2, "0")}
+        </span>
+      </div>
+      {column.id === "backlog" ? (
+        <Link
+          href={`/tasks/new?projectId=${projectId}`}
+          className="text-on-surface-variant transition-colors hover:text-on-surface"
+        >
+          <Icon name="add" size={16} />
+        </Link>
+      ) : null}
+    </div>
+  );
+}
 
-  // useDroppable makes the column itself a drop target even when empty
+function StaticColumn({
+  column,
+  projectId,
+}: {
+  column: BoardColumn;
+  projectId: string;
+}) {
+  return (
+    <section
+      className={`flex min-w-[248px] max-w-[248px] self-start flex-col gap-4 ${
+        column.dimmed ? "opacity-70 transition-opacity hover:opacity-100" : ""
+      }`}
+    >
+      <ColumnHeader column={column} projectId={projectId} />
+
+      <div className="scrollbar-thin flex min-h-[100px] flex-col gap-3 rounded-sm pr-2">
+        {column.tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            accentColor={column.accentColor}
+            isDone={column.dimmed}
+            projectId={projectId}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function DroppableColumn({
+  column,
+  projectId,
+}: {
+  column: BoardColumn;
+  projectId: string;
+}) {
+  const taskIds = column.tasks.map((task) => task.id);
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
   });
 
   return (
-    <SortableContext items={taskIds} strategy={verticalListSortingStrategy} id={column.id}>
+    <SortableContext
+      items={taskIds}
+      strategy={verticalListSortingStrategy}
+      id={column.id}
+    >
       <section
-        className={`min-w-[320px] max-w-[320px] flex flex-col gap-4 ${column.dimmed ? "opacity-70 hover:opacity-100 transition-opacity" : ""}`}
+        className={`flex min-w-[248px] max-w-[248px] self-start flex-col gap-4 ${
+          column.dimmed ? "opacity-70 transition-opacity hover:opacity-100" : ""
+        }`}
       >
-        {/* Column Header */}
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">
-              {column.title}
-            </span>
-            <span
-              className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${countBg[column.accentColor]}`}
-            >
-              {String(column.count).padStart(2, "0")}
-            </span>
-          </div>
-          {column.id === "backlog" && (
-            <Link href="/tasks/new" className="text-on-surface-variant hover:text-on-surface transition-colors">
-              <Icon name="add" size={16} />
-            </Link>
-          )}
-        </div>
+        <ColumnHeader column={column} projectId={projectId} />
 
-        {/* Task Cards — ref on this container makes empty columns droppable */}
         <div
           ref={setNodeRef}
-          className={`flex-1 flex flex-col gap-3 overflow-y-auto scrollbar-thin pr-2 min-h-[100px] rounded-sm transition-colors ${isOver ? "bg-surface-container-high/30" : ""}`}
+          className={`scrollbar-thin flex min-h-[100px] flex-col gap-3 rounded-sm pr-2 transition-colors ${
+            isOver ? "bg-surface-container-high/30" : ""
+          }`}
         >
           {column.tasks.map((task) => (
             <SortableTaskCard

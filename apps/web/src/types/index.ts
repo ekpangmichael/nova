@@ -9,9 +9,11 @@ export type LogEntry = {
 export type WorkingAgent = {
   agentId: string;
   name: string;
-  progress: number;
   taskLabel: string;
   taskId: string;
+  taskHref?: string;
+  statusText?: string;
+  progress?: number | null;
   logs: LogEntry[];
 };
 
@@ -28,10 +30,12 @@ export type ScheduledAgent = {
 };
 
 export type ActivityEvent = {
+  id?: string;
   timestamp: string;
-  agentId: string;
+  actorLabel: string;
   message: string;
   status: "working" | "idle" | "error" | "scheduled" | "neutral";
+  href?: string | null;
 };
 
 export type CriticalError = {
@@ -84,7 +88,16 @@ export type SystemLogEntry = {
 // Task Detail Types
 // ========================================
 
-export type TaskStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done";
+export type TaskStatus =
+  | "backlog"
+  | "todo"
+  | "in_progress"
+  | "in_review"
+  | "done"
+  | "failed"
+  | "blocked"
+  | "paused"
+  | "canceled";
 
 export type TaskAttachment = {
   name: string;
@@ -204,6 +217,7 @@ export type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
 
 export type BoardTask = {
   id: string;
+  displayId?: string;
   title: string;
   priority: TaskPriority;
   assignedAgent?: string;

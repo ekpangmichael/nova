@@ -1,10 +1,10 @@
 export function TaskDescription({ paragraphs }: { paragraphs: string[] }) {
   return (
-    <div className="space-y-6">
-      <h3 className="text-sm font-medium text-on-surface-variant/60 uppercase tracking-widest">
+    <div className="space-y-3">
+      <h3 className="text-[11px] font-bold text-on-surface-variant/50 uppercase tracking-widest">
         Description
       </h3>
-      <div className="space-y-4 text-on-surface-variant leading-relaxed text-lg">
+      <div className="space-y-3 text-on-surface-variant leading-relaxed text-sm">
         {paragraphs.map((p, i) => (
           <p key={i}>{p}</p>
         ))}

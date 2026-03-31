@@ -8,6 +8,34 @@
       "when": 1774769984331,
       "tag": "0000_warm_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775016000000,
+      "tag": "0001_openclaw_runtime_agent_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775070000000,
+      "tag": "0002_task_runtime_bridge",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775232000000,
+      "tag": "0003_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775232600000,
+      "tag": "0004_auth_google",
+      "breakpoints": true
     }
   ]
 }

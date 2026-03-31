@@ -12,7 +12,7 @@ const countBg: Record<BoardColumn["accentColor"], string> = {
 export function KanbanColumn({ column }: { column: BoardColumn }) {
   return (
     <section
-      className={`min-w-[320px] max-w-[320px] flex flex-col gap-4 ${column.dimmed ? "opacity-70 hover:opacity-100 transition-opacity" : ""}`}
+      className={`min-w-[248px] max-w-[248px] flex flex-col gap-4 ${column.dimmed ? "opacity-70 hover:opacity-100 transition-opacity" : ""}`}
     >
       {/* Column Header */}
       <div className="flex items-center justify-between px-1">

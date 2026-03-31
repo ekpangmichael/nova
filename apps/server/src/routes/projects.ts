@@ -39,6 +39,12 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     return app.services.nova.patchProject(projectId, body);
   });
 
+  app.delete("/projects/:projectId", async (request, reply) => {
+    const { projectId } = parseOrThrow(paramsSchema, request.params);
+    await app.services.nova.deleteProject(projectId);
+    return reply.code(204).send();
+  });
+
   app.post("/projects/:projectId/agents/:agentId", async (request) => {
     const { projectId, agentId } = parseOrThrow(paramsSchema, request.params);
     return app.services.nova.assignAgentToProject(projectId, agentId!);
@@ -53,5 +59,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   app.get("/projects/:projectId/activity", async (request) => {
     const { projectId } = parseOrThrow(paramsSchema, request.params);
     return app.services.nova.getProjectActivity(projectId);
+  });
+
+  app.get("/projects/:projectId/tasks", async (request) => {
+    const { projectId } = parseOrThrow(paramsSchema, request.params);
+    return app.services.nova.getProjectTasks(projectId);
   });
 };

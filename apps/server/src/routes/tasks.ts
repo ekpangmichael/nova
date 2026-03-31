@@ -54,7 +54,10 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/tasks", async (request) => {
     const body = parseOrThrow(createTaskSchema, request.body);
-    return app.services.nova.createTask(body);
+    return app.services.nova.createTask({
+      ...body,
+      createdBy: request.authSession?.user.displayName ?? body.createdBy,
+    });
   });
 
   app.patch("/tasks/:taskId", async (request) => {
@@ -63,9 +66,24 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     return app.services.nova.patchTask(taskId, body);
   });
 
+  app.delete("/tasks/:taskId", async (request, reply) => {
+    const { taskId } = parseOrThrow(paramsSchema, request.params);
+    await app.services.nova.deleteTask(taskId);
+    return reply.code(204).send();
+  });
+
   app.post("/tasks/:taskId/comments", async (request) => {
     const { taskId } = parseOrThrow(paramsSchema, request.params);
     const body = parseOrThrow(addCommentSchema, request.body);
+
+    if (!body.authorType || body.authorType === "user") {
+      return app.services.nova.addTaskComment(taskId, {
+        ...body,
+        authorType: "user",
+        authorId: request.authSession?.user.displayName ?? body.authorId ?? null,
+      });
+    }
+
     return app.services.nova.addTaskComment(taskId, body);
   });
 

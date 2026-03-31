@@ -1,76 +1,138 @@
 import Link from "next/link";
-import { AgentMonitorCard } from "@/components/agents/agent-monitor-card";
+import { Icon } from "@/components/ui/icon";
+import { getAgents } from "@/lib/api";
 
-import { monitoredAgents } from "@/lib/mock-data";
+const statusTone: Record<string, string> = {
+  idle: "text-secondary",
+  working: "text-primary",
+  paused: "text-tertiary",
+  error: "text-error",
+  offline: "text-on-surface-variant",
+};
 
-export default function AgentsPage() {
-  const activeCount = monitoredAgents.filter(
-    (a) => a.status === "active" || a.status === "syncing" || a.status === "patrolling"
-  ).length;
+export default async function AgentsPage() {
+  const agents = await getAgents();
+  const workingCount = agents.filter((agent) => agent.status === "working").length;
+  const idleCount = agents.filter((agent) => agent.status === "idle").length;
+  const errorCount = agents.filter((agent) => agent.status === "error").length;
 
   return (
-    <>
-      {/* Header */}
-      <div className="mb-16 flex flex-col md:flex-row md:items-end justify-between gap-6 anim-1">
-        <div>
-          <h2 className="text-3xl font-extralight tracking-tight text-on-surface mb-2">
-            Agent Monitoring
-          </h2>
-          <p className="text-on-surface-variant max-w-md font-light leading-relaxed">
-            Observing active neural pathways. Currently overseeing{" "}
-            <span className="text-secondary font-medium">
-              {activeCount} active entities
-            </span>{" "}
-            across secondary clusters.
+    <section className="max-w-6xl mx-auto w-full">
+      <div className="mb-14 flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+        <div className="space-y-3">
+          <p className="text-[11px] uppercase tracking-[0.28em] text-secondary">
+            Runtime Fleet
+          </p>
+          <h1 className="text-4xl font-light tracking-tight text-on-surface">
+            OpenClaw Agents
+          </h1>
+          <p className="max-w-2xl text-sm leading-7 text-on-surface-variant">
+            Nova provisions runtime-backed agents against your local OpenClaw
+            installation. Each agent owns its workspace, runtime state, and model
+            defaults without duplicating OpenClaw’s own control plane.
           </p>
         </div>
-        <div className="flex gap-4">
-          <button className="px-6 py-2 bg-surface-container-high text-on-surface text-xs tracking-widest uppercase hover:bg-surface-bright transition-all">
-            Filter By Task
-          </button>
+
+        <Link
+          href="/agents/new"
+          className="inline-flex items-center gap-2 rounded-sm bg-primary px-5 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-on-primary transition-opacity hover:opacity-85"
+        >
+          <Icon name="add" size={16} />
+          Create Agent
+        </Link>
+      </div>
+
+      <div className="mb-12 grid gap-4 md:grid-cols-3">
+        <article className="ghost bg-surface-container-low p-6">
+          <p className="text-[10px] uppercase tracking-[0.24em] text-on-surface-variant">
+            Working
+          </p>
+          <p className="mt-3 text-3xl font-light text-on-surface">{workingCount}</p>
+        </article>
+        <article className="ghost bg-surface-container-low p-6">
+          <p className="text-[10px] uppercase tracking-[0.24em] text-on-surface-variant">
+            Idle
+          </p>
+          <p className="mt-3 text-3xl font-light text-on-surface">{idleCount}</p>
+        </article>
+        <article className="ghost bg-surface-container-low p-6">
+          <p className="text-[10px] uppercase tracking-[0.24em] text-on-surface-variant">
+            Errors
+          </p>
+          <p className="mt-3 text-3xl font-light text-on-surface">{errorCount}</p>
+        </article>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {agents.map((agent) => (
           <Link
-            href="/agents/new"
-            className="bg-primary text-on-primary font-bold px-6 py-2 rounded-sm text-xs tracking-widest uppercase hover:opacity-80 transition-all active:scale-95"
+            key={agent.id}
+            href={`/agents/${agent.id}`}
+            className="ghost group bg-surface-container-low p-6 transition-colors hover:bg-surface-container"
           >
-            Deploy New Agent
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-sm bg-surface-container-high text-secondary">
+                    <Icon name={agent.avatar || "smart_toy"} size={22} />
+                  </span>
+                  <div>
+                    <h2 className="text-xl font-light tracking-tight text-on-surface">
+                      {agent.name}
+                    </h2>
+                    <p className="text-sm text-on-surface-variant">{agent.role}</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.18em]">
+                  <span className={statusTone[agent.status] ?? "text-on-surface-variant"}>
+                    {agent.status.replace("_", " ")}
+                  </span>
+                  <span className="text-on-surface-variant">
+                    {agent.runtime.defaultModelId ?? "No model"}
+                  </span>
+                  <span className="text-on-surface-variant">
+                    {agent.projectIds.length} project{agent.projectIds.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
+
+              <Icon
+                name="arrow_forward"
+                size={18}
+                className="mt-1 text-on-surface-variant transition-transform group-hover:translate-x-1"
+              />
+            </div>
+
+            <div className="mt-6 grid gap-3 text-sm text-on-surface-variant">
+              <div className="flex items-start justify-between gap-4">
+                <span>Runtime Agent ID</span>
+                <span className="font-mono text-[13px] text-on-surface">
+                  {agent.runtime.runtimeAgentId}
+                </span>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <span>Workspace</span>
+                <span className="max-w-[60%] truncate font-mono text-[13px] text-on-surface">
+                  {agent.runtime.workspacePath}
+                </span>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <span>Thinking Default</span>
+                <span className="font-mono text-[13px] text-on-surface">
+                  {agent.runtime.defaultThinkingLevel}
+                </span>
+              </div>
+            </div>
           </Link>
-        </div>
-      </div>
-
-      {/* Bento Monitoring Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 anim-2">
-        {/* First 3 agent cards */}
-        {monitoredAgents.slice(0, 3).map((agent) => (
-          <AgentMonitorCard key={agent.id} agent={agent} />
-        ))}
-
-        {/* Remaining agent cards */}
-        {monitoredAgents.slice(3).map((agent) => (
-          <AgentMonitorCard key={agent.id} agent={agent} />
         ))}
       </div>
 
-      {/* Footer System Meta */}
-      <footer className="mt-24 pt-12 ghost-t flex flex-col md:flex-row justify-between items-center gap-8 anim-3">
-        <div className="flex items-center gap-8">
-          <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-[0.2em] text-on-surface-variant mb-1">
-              Last Kernel Update
-            </span>
-            <span className="text-xs font-mono text-on-surface">
-              2024-05-24 04:12:01 UTC
-            </span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-[0.2em] text-on-surface-variant mb-1">
-              System Load
-            </span>
-            <span className="text-xs font-mono text-on-surface">
-              0.42 / 1.00
-            </span>
-          </div>
+      {agents.length === 0 ? (
+        <div className="ghost mt-8 bg-surface-container-low p-8 text-sm text-on-surface-variant">
+          No agents have been provisioned yet.
         </div>
-      </footer>
-    </>
+      ) : null}
+    </section>
   );
 }
