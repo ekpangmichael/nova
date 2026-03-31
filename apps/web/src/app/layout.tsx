@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -13,9 +14,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Obsidian Protocol | Agent Project Manager",
+  title: "Orbit Shop | Phone Accessories Landing Page",
   description:
-    "AI agent workforce orchestration platform. Manage projects, configure agents, assign tasks, and monitor execution in real time.",
+    "Orbit Shop is a modern ecommerce landing page for premium phone accessories, featuring a blue-first palette with orange accents.",
 };
 
 export default function RootLayout({
@@ -37,7 +38,9 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
         />
       </head>
-      <body className="min-h-screen font-body antialiased">{children}</body>
+      <body className="min-h-screen font-body antialiased">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }
