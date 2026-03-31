@@ -2,7 +2,6 @@
 
 /* ============================= */
 /* Design System: Color Tokens   */
-/* (Dark theme is the default)   */
 /* ============================= */
 @theme {
   /* Surface tier (The Void) */
@@ -64,58 +63,6 @@
 }
 
 /* ============================= */
-/* Light Theme Override           */
-/* ============================= */
-.light {
-  /* Surface tier */
-  --color-surface: #f6f7f9;
-  --color-surface-dim: #e0e1e4;
-  --color-surface-bright: #ffffff;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f0f1f3;
-  --color-surface-container: #eaebee;
-  --color-surface-container-high: #e2e3e6;
-  --color-surface-container-highest: #dadbe0;
-  --color-surface-variant: #dfe0e4;
-
-  /* On-surface text */
-  --color-on-surface: #1b1b1e;
-  --color-on-surface-variant: #606064;
-  --color-on-background: #1b1b1e;
-
-  /* Outline / Ghost borders */
-  --color-outline: #8e8e92;
-  --color-outline-variant: #c6c6ca;
-
-  /* Primary (Scheduled / Neutral) */
-  --color-primary: #5d5f60;
-  --color-on-primary: #ffffff;
-  --color-primary-container: #e0e2e3;
-  --color-on-primary-container: #1a1c1d;
-
-  /* Secondary (Blue) */
-  --color-secondary: #3b5ec9;
-  --color-on-secondary: #ffffff;
-  --color-secondary-container: #dce3ff;
-  --color-secondary-dim: #3b5ec9;
-
-  /* Tertiary (Green) */
-  --color-tertiary: #1a7d42;
-  --color-on-tertiary: #ffffff;
-  --color-tertiary-container: #a8f5be;
-  --color-tertiary-dim: #1a7d42;
-
-  /* Error */
-  --color-error: #ba1a1a;
-  --color-on-error: #ffffff;
-  --color-error-container: #ffdad6;
-
-  /* Inverse */
-  --color-inverse-surface: #303032;
-  --color-inverse-primary: #c5c7c8;
-}
-
-/* ============================= */
 /* Font Tokens (runtime vars)    */
 /* ============================= */
 @theme inline {
@@ -163,53 +110,45 @@
 @utility scrollbar-thin {
   &::-webkit-scrollbar { width: 3px; }
   &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: var(--color-outline-variant); opacity: 0.4; border-radius: 4px; }
-  &::-webkit-scrollbar-thumb:hover { background: var(--color-outline); opacity: 0.5; }
+  &::-webkit-scrollbar-thumb { background: rgba(72,72,75,0.25); border-radius: 4px; }
+  &::-webkit-scrollbar-thumb:hover { background: rgba(72,72,75,0.5); }
 }
 
 @utility dot-grid {
-  background-image: radial-gradient(circle, var(--color-outline-variant) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(72,72,75,0.12) 1px, transparent 1px);
   background-size: 24px 24px;
-  opacity: 0.2;
-}
-
-@utility auth-grid {
-  background-image:
-    linear-gradient(to right, rgba(72, 72, 75, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(72, 72, 75, 0.04) 1px, transparent 1px);
-  background-size: 40px 40px;
 }
 
 @utility ghost {
-  border: 1px solid color-mix(in srgb, var(--color-outline-variant) 16%, transparent);
+  border: 1px solid rgba(72,72,75,0.08);
 }
 
 @utility ghost-b {
-  border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) 12%, transparent);
+  border-bottom: 1px solid rgba(72,72,75,0.06);
 }
 
 @utility ghost-r {
-  border-right: 1px solid color-mix(in srgb, var(--color-outline-variant) 12%, transparent);
+  border-right: 1px solid rgba(72,72,75,0.06);
 }
 
 @utility ghost-t {
-  border-top: 1px solid color-mix(in srgb, var(--color-outline-variant) 12%, transparent);
+  border-top: 1px solid rgba(72,72,75,0.06);
 }
 
 @utility ghost-l {
-  border-left: 1px solid color-mix(in srgb, var(--color-outline-variant) 12%, transparent);
+  border-left: 1px solid rgba(72,72,75,0.06);
 }
 
 @utility glow-green {
-  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--color-tertiary) 12%, transparent);
+  box-shadow: 0 0 10px 1px rgba(209,255,215,0.12);
 }
 
 @utility glow-blue {
-  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--color-secondary) 10%, transparent);
+  box-shadow: 0 0 10px 1px rgba(123,153,255,0.10);
 }
 
 @utility glow-red {
-  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--color-error) 10%, transparent);
+  box-shadow: 0 0 10px 1px rgba(238,125,119,0.10);
 }
 
 /* ============================= */
@@ -220,10 +159,6 @@ body {
   color: var(--color-on-surface);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  text-decoration: none;
 }
 
 
@@ -288,7 +223,7 @@ a {
   left: 0;
   right: 0;
   height: 48px;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--color-tertiary) 3%, transparent), transparent);
+  background: linear-gradient(to bottom, rgba(209,255,215,0.02), transparent);
   animation: scan-line 5s linear infinite;
   pointer-events: none;
   z-index: 1;
@@ -308,14 +243,9 @@ a {
 }
 
 /* Sidebar active nav item */
-.dark .nav-active {
+.nav-active {
   background: rgba(31,31,34,0.5);
   box-shadow: inset 3px 0 12px -6px rgba(123,153,255,0.12);
-}
-
-.light .nav-active {
-  background: rgba(59,94,201,0.06);
-  box-shadow: inset 3px 0 12px -6px rgba(59,94,201,0.15);
 }
 
 /* FAB transitions */
@@ -328,9 +258,4 @@ a {
 }
 .fab-btn:active {
   transform: scale(0.96);
-}
-
-/* Light mode select styling */
-.light select {
-  color-scheme: light;
 }
