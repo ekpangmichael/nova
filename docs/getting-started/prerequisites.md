@@ -46,7 +46,15 @@ If none of these binaries are present, Nova falls back to its built-in **mock ru
 
 ## Environment Variables (Optional)
 
-The server reads environment variables from `.env` and `.env.local` files at the repository root and inside `packages/`. None are required for basic development -- sensible defaults are applied automatically.
+Nova ships with a root `.env.example`. The official path is:
+
+```bash
+pnpm setup
+```
+
+That bootstrap command copies `.env.example` to `.env.local` if needed. None of the variables are required for a basic local boot; sensible defaults are applied automatically.
+
+The server reads environment variables from `.env` and `.env.local` files at the repository root and inside `packages/`.
 
 Key variables you may want to override:
 

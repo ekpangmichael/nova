@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "setup": "node ./scripts/setup.mjs",
     "dev": "node ./scripts/dev.mjs",
     "dev:lan": "NOVA_DEV_LAN=1 node ./scripts/dev.mjs",
     "dev:web": "pnpm --filter @nova/web run dev",

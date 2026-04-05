@@ -1,10 +1,19 @@
 # Installation
 
-This page covers cloning the repository, installing dependencies, and launching Nova for the first time.
+Nova's current official install path is **source install with bootstrap**.
+
+That means the supported first-run workflow today is:
+
+1. clone the repository
+2. install dependencies
+3. run `pnpm setup`
+4. run `pnpm dev`
+
+This keeps the install story simple now, while leaving room for a future standalone installer or npm bootstrap package.
 
 ---
 
-## 1. Clone the Repository
+## 1. Clone the repository
 
 ```bash
 git clone <repo-url> nova
@@ -13,103 +22,112 @@ cd nova
 
 ---
 
-## 2. Install Dependencies
+## 2. Install dependencies
 
-Nova is a pnpm workspace monorepo. A single install command pulls dependencies for every package and application.
+Nova is a pnpm workspace monorepo. Install everything with one command:
 
 ```bash
 pnpm install
 ```
 
-This installs dependencies for:
+---
 
-- `apps/server` (`@nova/server`)
-- `apps/web` (`@nova/web`)
-- `packages/shared` (`@nova/shared`)
-- `packages/db` (`@nova/db`)
-- `packages/runtime-adapter` (`@nova/runtime-adapter`)
-- `packages/ui` (`@nova/ui`)
+## 3. Bootstrap the local workspace
+
+Run:
+
+```bash
+pnpm setup
+```
+
+The bootstrap script does three things:
+
+1. creates `.env.local` from `.env.example` if you do not already have one
+2. ensures the local app-data directory exists
+3. detects local runtime binaries like `openclaw`, `codex`, and `claude`
+
+It does **not** overwrite an existing `.env.local`.
+
+If you want to inspect or change configuration before the first run, edit `.env.local` after this step.
 
 ---
 
-## 3. First Run
+## 4. Start Nova
 
-Start both the API server and web frontend with a single command:
+Run:
 
 ```bash
 pnpm dev
 ```
 
-The dev script (`scripts/dev.mjs`) performs the following sequence:
+The development launcher:
 
-1. Loads environment variables from `.env` and `.env.local` files at the repo root and `packages/` directory.
-2. Terminates any lingering Nova dev processes from previous sessions.
-3. Frees port **4010** if occupied by a prior Nova server and verifies port **3000** is available.
-4. Starts the Fastify API server on `http://127.0.0.1:4010` via `pnpm --filter @nova/server run dev`, which first builds shared dependencies (`@nova/shared`, `@nova/runtime-adapter`, `@nova/db`) then launches `tsx watch src/index.ts`.
-5. Polls `http://127.0.0.1:4010/api/health` until the server responds with `{"service": "nova-server"}` (up to 30 seconds).
-6. Starts the Next.js frontend on `http://127.0.0.1:3000` with `NOVA_BACKEND_URL` set to `http://127.0.0.1:4010/api`.
+1. loads environment variables from `.env`, `.env.local`, and `packages/.env*`
+2. stops stale Nova dev processes from previous sessions
+3. starts the Fastify API server on `http://127.0.0.1:4010`
+4. waits for `/api/health` to become ready
+5. starts the Next.js frontend on `http://127.0.0.1:3000`
 
-Once both processes are running, open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser when startup completes.
 
 ---
 
-## 4. Verify the Server
+## LAN access
 
-You can confirm the API server is healthy independently:
+If you want to open Nova from another device on the same network, use:
 
 ```bash
-curl http://127.0.0.1:4010/api/health
+pnpm dev:lan
 ```
 
-Expected response:
-
-```json
-{
-  "service": "nova-server"
-}
-```
+This exposes the web frontend on your LAN IP and prints the URL to open from another machine.
 
 ---
 
-## 5. Local Data Storage
+## Runtime onboarding
 
-Nova stores all persistent data in the `.nova-data/` directory at the repository root (configurable via `NOVA_APP_DATA_DIR`). This directory contains:
+Nova can run without external runtimes in mock mode, but most real agent workflows need one or more local runtimes:
+
+- OpenClaw
+- Codex
+- Claude Code
+
+Nova will detect installed runtime binaries during `pnpm setup`, and you can finish runtime configuration from the `/runtimes` page after the app is running.
+
+---
+
+## Local data storage
+
+Nova stores local state in `.nova-data/` by default, unless overridden by `NOVA_APP_DATA_DIR`.
+
+Typical contents:
 
 | Path | Contents |
 | ---- | -------- |
 | `.nova-data/db/app.db` | SQLite database |
-| `.nova-data/attachments/` | Uploaded task attachments |
-| `.nova-data/logs/` | Server logs |
+| `.nova-data/attachments/` | Task and comment attachments |
+| `.nova-data/logs/` | Local server logs |
 | `.nova-data/temp/` | Temporary files |
-| `.nova-data/agent-homes/` | Per-agent home directories managed by runtimes |
+| `.nova-data/agent-homes/` | Generated agent homes |
 
-The `.nova-data/` directory is git-ignored. To reset all local state, delete it and restart the server.
+This directory is local-only and git-ignored.
 
 ---
 
 ## Troubleshooting
 
-### Port Already in Use
+### `pnpm setup` says a runtime is not found
 
-If port 4010 or 3000 is occupied by a non-Nova process, the dev script exits with an error message indicating the PID. Free the port and try again:
+That is not fatal. Nova can still boot in mock mode. You only need a runtime binary installed for the runtime you want to use.
 
-```bash
-# Find and stop the process on port 4010
-lsof -ti tcp:4010 | xargs kill
-```
+### Port 3000 or 4010 is already in use
 
-### Shared Package Build Failures
+The dev launcher can clean up stale Nova processes, but it will stop if a non-Nova process is holding the port. Free the port and rerun `pnpm dev`.
 
-The server and web app depend on shared packages being built first. If you see import errors referencing `@nova/shared`, `@nova/db`, or `@nova/runtime-adapter`, build them manually:
+### I need Google sign-in
 
-```bash
-pnpm -r --if-present build
-```
+Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env.local`. For local-only auth, email/password works without Google OAuth.
 
-### Database Schema Changes
+### I want to customize config first
 
-After pulling changes that include new migration files in `packages/db/drizzle/`, regenerate the schema:
-
-```bash
-pnpm db:generate
-```
+Start from [`.env.example`](../../.env.example) and edit `.env.local` after `pnpm setup`.
