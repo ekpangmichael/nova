@@ -59,7 +59,7 @@ export function EditProjectForm({ project }: { project: ApiProjectDetail }) {
     }
 
     if (seedType === "git" && !seedUrl.trim()) {
-      setErrorMessage("Seed URL is required when the seed type is Git.");
+      setErrorMessage("Repository URL is required for Git projects.");
       return;
     }
 
@@ -201,7 +201,7 @@ export function EditProjectForm({ project }: { project: ApiProjectDetail }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10 anim-3">
           <div>
             <label className="block text-[10px] uppercase tracking-[0.2em] text-on-surface-variant mb-4 font-medium">
-              Seed Type
+              Source Type
             </label>
             <div className="relative">
               <select
@@ -239,7 +239,7 @@ export function EditProjectForm({ project }: { project: ApiProjectDetail }) {
         {seedType === "git" ? (
           <div className="anim-3">
             <label className="block text-[10px] uppercase tracking-[0.2em] text-on-surface-variant mb-4 font-medium">
-              Seed Repository URL
+              Repository URL
             </label>
             <input
               type="url"

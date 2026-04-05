@@ -4,12 +4,20 @@
   "private": true,
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
+    "dev:lan": "NOVA_DEV_LAN=1 node ./scripts/dev.mjs",
     "dev:web": "pnpm --filter @nova/web run dev",
     "dev:server": "pnpm --filter @nova/server run dev",
     "build": "pnpm -r --if-present build",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
-    "db:generate": "pnpm --filter @nova/db run db:generate"
+    "db:generate": "pnpm --filter @nova/db run db:generate",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.32"
   }
 }

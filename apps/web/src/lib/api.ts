@@ -17,7 +17,7 @@ const AUTH_COOKIE_NAME = "nova_session";
 export type ApiProjectStatus = "active" | "paused" | "archived";
 export type ApiSeedType = "none" | "git";
 export type ApiAgentStatus = "idle" | "working" | "paused" | "error" | "offline";
-export type ApiRuntimeKind = "openclaw-native";
+export type ApiRuntimeKind = "openclaw-native" | "codex" | "claude-code";
 export type ApiSandboxMode = "off" | "docker" | "other";
 export type ApiThinkingLevel =
   | "off"
@@ -101,7 +101,7 @@ export type ApiAgent = {
 
 export type ApiRuntimeHealth = {
   status: "missing_binary" | "starting" | "healthy" | "degraded" | "error";
-  mode: "mock" | "openclaw";
+  mode: "mock" | "openclaw" | "codex" | "claude";
   profile: string;
   gatewayUrl: string | null;
   binaryPath: string;
@@ -113,7 +113,7 @@ export type ApiRuntimeHealth = {
 };
 
 export type ApiRuntimeSummary = {
-  providerKey: "openclaw";
+  providerKey: string;
   kind: ApiRuntimeKind;
   label: string;
   available: boolean;
@@ -165,6 +165,171 @@ export type ApiOpenClawCatalog = ApiRuntimeSummary & {
     defaultModelId: string | null;
     isDefault: boolean;
   }>;
+};
+
+export type ApiCodexCatalog = ApiRuntimeSummary & {
+  configPath: string | null;
+  stateDir: string | null;
+  gateway: {
+    reachable: boolean;
+    url: string | null;
+    bindMode: string | null;
+    bindHost: string | null;
+    port: number | null;
+    authMode: string | null;
+  };
+  defaults: {
+    defaultAgentId: string | null;
+    defaultModelId: string | null;
+    workspacePathTemplate: string;
+    runtimeStatePathTemplate: string;
+  };
+  models: Array<{
+    id: string;
+    name: string;
+    available: boolean;
+    local: boolean;
+    input: string | null;
+    contextWindow: number | null;
+    tags: string[];
+  }>;
+  existingAgents: Array<{
+    runtimeAgentId: string;
+    workspacePath: string;
+    runtimeStatePath: string;
+    displayName: string | null;
+    defaultModelId: string | null;
+    isDefault: boolean;
+  }>;
+};
+
+export type ApiOpenClawConfigValues = {
+  runtimeMode: "mock" | "openclaw";
+  profile: string;
+  binaryPath: string;
+  stateDir: string;
+  configPath: string;
+  gatewayUrl: string | null;
+};
+
+export type ApiOpenClawConfigSnapshot = {
+  enabled: boolean;
+  current: ApiOpenClawConfigValues;
+  detected: {
+    profile: string;
+    binaryPath: string;
+    stateDir: string;
+    configPath: string;
+    gatewayUrl: string | null;
+  };
+  health: ApiRuntimeHealth;
+};
+
+export type ApiCodexConfigValues = {
+  binaryPath: string;
+  stateDir: string;
+  configPath: string;
+  defaultModel: string | null;
+};
+
+export type ApiCodexLoginSummary = {
+  status: "logged_in" | "logged_out" | "unknown";
+  authMode: string | null;
+  lastRefresh: string | null;
+  message: string;
+};
+
+export type ApiCodexConfigSnapshot = {
+  enabled: boolean;
+  current: ApiCodexConfigValues;
+  detected: ApiCodexConfigValues;
+  auth: ApiCodexLoginSummary;
+  health: ApiRuntimeHealth;
+};
+
+export type ApiClaudeConfigValues = {
+  binaryPath: string;
+  stateDir: string;
+  configPath: string;
+  defaultModel: string | null;
+};
+
+export type ApiClaudeLoginSummary = {
+  status: "logged_in" | "logged_out" | "unknown";
+  authMode: string | null;
+  email: string | null;
+  subscriptionType: string | null;
+  message: string;
+};
+
+export type ApiClaudeCatalog = ApiRuntimeSummary & {
+  configPath: string | null;
+  stateDir: string | null;
+  gateway: {
+    reachable: boolean;
+    url: string | null;
+    bindMode: string | null;
+    bindHost: string | null;
+    port: number | null;
+    authMode: string | null;
+  };
+  defaults: {
+    defaultAgentId: string | null;
+    defaultModelId: string | null;
+    workspacePathTemplate: string;
+    runtimeStatePathTemplate: string;
+  };
+  models: Array<{
+    id: string;
+    name: string;
+    available: boolean;
+    local: boolean;
+    input: string | null;
+    contextWindow: number | null;
+    tags: string[];
+  }>;
+  existingAgents: Array<{
+    runtimeAgentId: string;
+    workspacePath: string;
+    runtimeStatePath: string;
+    displayName: string | null;
+    defaultModelId: string | null;
+    isDefault: boolean;
+  }>;
+};
+
+export type ApiClaudeConfigSnapshot = {
+  enabled: boolean;
+  current: ApiClaudeConfigValues;
+  detected: ApiClaudeConfigValues;
+  auth: ApiClaudeLoginSummary;
+  health: ApiRuntimeHealth;
+};
+
+export type PatchOpenClawConfigInput = {
+  profile: string;
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  gatewayUrl?: string | null;
+};
+
+export type PatchCodexConfigInput = {
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  defaultModel?: string | null;
+};
+
+export type PatchClaudeConfigInput = {
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  defaultModel?: string | null;
+};
+
+export type SetRuntimeEnabledInput = {
+  enabled: boolean;
 };
 
 export type ApiMonitorSummary = {
@@ -251,15 +416,29 @@ export type ApiTaskComment = {
   taskRunId: string | null;
   authorType: "user" | "agent" | "system";
   authorId: string | null;
+  authorLabel: string | null;
   source: "ticket_user" | "agent_mirror" | "agent_api" | "system";
   externalMessageId: string | null;
   body: string;
+  attachments: ApiTaskCommentAttachment[];
   createdAt: string;
 };
 
 export type ApiTaskAttachment = {
   id: string;
   taskId: string;
+  fileName: string;
+  mimeType: string;
+  relativeStoragePath: string;
+  sha256: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+export type ApiTaskCommentAttachment = {
+  id: string;
+  taskId: string;
+  taskCommentId: string;
   fileName: string;
   mimeType: string;
   relativeStoragePath: string;
@@ -326,6 +505,9 @@ export type ApiTaskSummary = {
   assignedAgentId: string;
   executionTargetOverride: string | null;
   resolvedExecutionTarget: string;
+  gitRepoRoot: string | null;
+  gitBranchName: string | null;
+  gitBranchUrl: string | null;
   dueAt: string | null;
   estimatedMinutes: number | null;
   labels: string[];
@@ -380,6 +562,16 @@ export type CreateAgentInput = {
   };
 };
 
+export type ImportOpenClawAgentInput = Omit<CreateAgentInput, "runtime"> & {
+  runtime: {
+    runtimeAgentId: string;
+    defaultModelId?: string | null;
+    modelOverrideAllowed?: boolean;
+    sandboxMode?: ApiSandboxMode;
+    defaultThinkingLevel?: ApiThinkingLevel;
+  };
+};
+
 export type PatchAgentInput = Partial<Omit<CreateAgentInput, "runtime">> & {
   status?: ApiAgentStatus;
   runtime?: {
@@ -414,6 +606,8 @@ export type AddTaskCommentInput = {
   authorType?: "user" | "agent" | "system";
   authorId?: string | null;
   body: string;
+  attachments?: File[];
+  thinkingLevel?: ApiThinkingLevel | null;
 };
 
 export type DirectorySelection = {
@@ -530,6 +724,116 @@ export async function getOpenClawCatalog() {
   return requestJson<ApiOpenClawCatalog>("/runtimes/openclaw/catalog");
 }
 
+export async function getCodexCatalog() {
+  return requestJson<ApiCodexCatalog>("/runtimes/codex/catalog");
+}
+
+export async function getClaudeCatalog() {
+  return requestJson<ApiClaudeCatalog>("/runtimes/claude/catalog");
+}
+
+export async function getOpenClawConfig() {
+  return requestJson<ApiOpenClawConfigSnapshot>("/runtimes/openclaw/config");
+}
+
+export async function testOpenClawConfig(input: PatchOpenClawConfigInput) {
+  return requestJson<ApiOpenClawConfigSnapshot>("/runtimes/openclaw/config/test", {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function updateOpenClawConfig(input: PatchOpenClawConfigInput) {
+  return requestJson<ApiOpenClawConfigSnapshot>("/runtimes/openclaw/config", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function setOpenClawEnabled(input: SetRuntimeEnabledInput) {
+  return requestJson<ApiOpenClawConfigSnapshot>("/runtimes/openclaw/enabled", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function getCodexConfig() {
+  return requestJson<ApiCodexConfigSnapshot>("/runtimes/codex/config");
+}
+
+export async function getClaudeConfig() {
+  return requestJson<ApiClaudeConfigSnapshot>("/runtimes/claude/config");
+}
+
+export async function testCodexConfig(input: PatchCodexConfigInput) {
+  return requestJson<ApiCodexConfigSnapshot>("/runtimes/codex/config/test", {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function updateCodexConfig(input: PatchCodexConfigInput) {
+  return requestJson<ApiCodexConfigSnapshot>("/runtimes/codex/config", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function setCodexEnabled(input: SetRuntimeEnabledInput) {
+  return requestJson<ApiCodexConfigSnapshot>("/runtimes/codex/enabled", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function testClaudeConfig(input: PatchClaudeConfigInput) {
+  return requestJson<ApiClaudeConfigSnapshot>("/runtimes/claude/config/test", {
+    method: "POST",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function updateClaudeConfig(input: PatchClaudeConfigInput) {
+  return requestJson<ApiClaudeConfigSnapshot>("/runtimes/claude/config", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export async function setClaudeEnabled(input: SetRuntimeEnabledInput) {
+  return requestJson<ApiClaudeConfigSnapshot>("/runtimes/claude/enabled", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
 export async function getMonitorSummary() {
   return requestJson<ApiMonitorSummary>("/monitor/summary");
 }
@@ -592,6 +896,16 @@ export async function createAgent(input: CreateAgentInput) {
   });
 }
 
+export async function importOpenClawAgent(input: ImportOpenClawAgentInput) {
+  return requestJson<ApiAgent>("/agents/import/openclaw", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+}
+
 export async function patchAgent(agentId: string, input: PatchAgentInput) {
   return requestJson<ApiAgent>(`/agents/${agentId}`, {
     method: "PATCH",
@@ -635,6 +949,32 @@ export async function deleteTask(taskId: string) {
 }
 
 export async function addTaskComment(taskId: string, input: AddTaskCommentInput) {
+  if (input.attachments && input.attachments.length > 0) {
+    const formData = new FormData();
+    formData.append("body", input.body);
+
+    if (input.authorType) {
+      formData.append("authorType", input.authorType);
+    }
+
+    if (input.authorId != null) {
+      formData.append("authorId", input.authorId);
+    }
+
+    if (input.thinkingLevel) {
+      formData.append("thinkingLevel", input.thinkingLevel);
+    }
+
+    for (const file of input.attachments) {
+      formData.append("files", file);
+    }
+
+    return requestJson<ApiTaskComment>(`/tasks/${taskId}/comments`, {
+      method: "POST",
+      body: formData,
+    });
+  }
+
   return requestJson<ApiTaskComment>(`/tasks/${taskId}/comments`, {
     method: "POST",
     headers: {
@@ -642,6 +982,16 @@ export async function addTaskComment(taskId: string, input: AddTaskCommentInput)
     },
     body: JSON.stringify(input),
   });
+}
+
+export function getTaskCommentAttachmentContentUrl(
+  taskId: string,
+  commentId: string,
+  attachmentId: string
+) {
+  return buildApiUrl(
+    `/tasks/${taskId}/comments/${commentId}/attachments/${attachmentId}/content`
+  );
 }
 
 export async function startTask(taskId: string) {

@@ -17,13 +17,13 @@ export function KanbanColumn({ column }: { column: BoardColumn }) {
       {/* Column Header */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant/60">
             {column.title}
           </span>
           <span
-            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${countBg[column.accentColor]}`}
+            className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono text-on-surface-variant/30 bg-surface-container-high/40`}
           >
-            {String(column.count).padStart(2, "0")}
+            {column.count}
           </span>
         </div>
         {column.id === "backlog" && (

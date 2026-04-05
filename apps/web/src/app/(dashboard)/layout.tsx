@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { BrowserNotificationManager } from "@/components/layout/browser-notification-manager";
 import { TopBar } from "@/components/layout/top-bar";
+import { TourOverlay } from "@/components/layout/tour-overlay";
 import { getServerAuthSession } from "@/lib/auth";
 
 export default async function DashboardLayout({
@@ -23,6 +24,7 @@ export default async function DashboardLayout({
         <BrowserNotificationManager />
         <div className="flex-1 p-8 min-w-0 overflow-hidden">{children}</div>
       </main>
+      <TourOverlay />
     </div>
   );
 }

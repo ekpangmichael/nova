@@ -142,6 +142,7 @@ export type SyncRuntimeWorkspaceResult = {
 export interface StartRunInput {
   taskId: string;
   runId: string;
+  previousRuntimeSessionKey?: string | null;
   agentId: string;
   runtimeAgentId: string;
   agentHomePath: string;
@@ -150,6 +151,7 @@ export interface StartRunInput {
   attachments: RuntimeAttachment[];
   modelOverride?: string | null;
   thinkingLevel?: ThinkingLevel | null;
+  sandboxMode?: SandboxMode | null;
 }
 
 export interface StartRunResult {

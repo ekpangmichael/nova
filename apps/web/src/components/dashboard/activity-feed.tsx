@@ -104,7 +104,7 @@ export function ActivityFeed({ events }: { events: ActivityEvent[] }) {
               No recent activity
             </p>
             <p className="mt-3 text-sm text-on-surface-variant/60">
-              Recent runs, ticket comments, and agent assignments will appear here.
+              Task updates, agent activity, and comments will appear here.
             </p>
           </div>
         )}

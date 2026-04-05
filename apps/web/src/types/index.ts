@@ -111,6 +111,7 @@ export type ExecutionLogItem = {
   title: string;
   description: string;
   timeAgo: string;
+  runtimeLabel?: string;
 };
 
 export type TaskDetail = {
@@ -123,6 +124,7 @@ export type TaskDetail = {
   priorityColor: "error" | "tertiary" | "secondary" | "primary" | "outline";
   assignedAgent: { name: string; role: string };
   workspace: string;
+  branch: { name: string; url: string | null } | null;
   deadline: string;
   attachments: TaskAttachment[];
   executionLog: ExecutionLogItem[];

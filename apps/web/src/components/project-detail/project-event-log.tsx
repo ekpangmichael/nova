@@ -35,7 +35,7 @@ export function ProjectEventLog({ events }: { events: ProjectEvent[] }) {
           Event Logs
         </h3>
         <span className="font-mono text-[9px] ghost px-2 py-0.5 text-on-surface-variant/50">
-          LIVE_STREAM
+          Live
         </span>
       </div>
 
@@ -77,7 +77,7 @@ export function ProjectEventLog({ events }: { events: ProjectEvent[] }) {
       </div>
 
       <button className="w-full mt-6 ghost py-2.5 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/40 hover:text-on-surface-variant/70 hover:bg-surface-container/30 transition-all rounded-sm">
-        View Comprehensive Logs
+        View All Logs
       </button>
     </div>
   );

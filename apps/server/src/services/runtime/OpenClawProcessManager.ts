@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { RuntimeHealth } from "@nova/shared";
 import type { AppEnv } from "../../env.js";
@@ -64,14 +66,31 @@ type OpenClawModelsList = {
   }>;
 };
 
+type OpenClawConfigEntry = {
+  id?: string;
+  workspace?: string | null;
+  agentDir?: string | null;
+  subagents?: {
+    allowAgents?: string[];
+  };
+  [key: string]: unknown;
+};
+
+type OpenClawConfigFile = {
+  list?: OpenClawConfigEntry[];
+  [key: string]: unknown;
+};
+
 export type OpenClawCommandResult = {
   stdout: string;
   stderr: string;
 };
 
 export class OpenClawProcessManager {
+  static #HEALTH_CACHE_TTL_MS = 10_000;
   #env: AppEnv;
   #lastHealth: RuntimeHealth | null = null;
+  #lastHealthAt = 0;
 
   constructor(env: AppEnv) {
     this.#env = env;
@@ -145,17 +164,35 @@ export class OpenClawProcessManager {
       args.push("--model", input.defaultModelId);
     }
 
-    return this.runJson<Record<string, unknown>>(args);
+    const result = await this.runJson<Record<string, unknown>>(args);
+    await this.ensureMainAgentCanInvoke(input.runtimeAgentId);
+    await this.#restartAfterAgentMutation();
+    return result;
   }
 
   async deleteAgent(runtimeAgentId: string) {
-    await this.run([
-      "agents",
-      "delete",
-      runtimeAgentId,
-      "--force",
-      "--json",
-    ]);
+    let cliError: Error | null = null;
+
+    try {
+      await this.run([
+        "agents",
+        "delete",
+        runtimeAgentId,
+        "--force",
+        "--json",
+      ]);
+    } catch (error) {
+      cliError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    const removedConfig = await this.removeAgentFromConfig(runtimeAgentId);
+    await this.removeAgentLocalFiles(runtimeAgentId, removedConfig);
+
+    await this.#restartAfterAgentMutation();
+
+    if (cliError && !removedConfig.changed) {
+      throw cliError;
+    }
   }
 
   async setIdentityFromWorkspace(input: {
@@ -225,8 +262,15 @@ export class OpenClawProcessManager {
   }
 
   async getHealth(): Promise<RuntimeHealth> {
+    if (
+      this.#lastHealth &&
+      Date.now() - this.#lastHealthAt < OpenClawProcessManager.#HEALTH_CACHE_TTL_MS
+    ) {
+      return this.#lastHealth;
+    }
+
     if (this.#env.runtimeMode === "mock") {
-      return {
+      const health: RuntimeHealth = {
         status: "healthy",
         mode: "mock",
         profile: this.#env.openclawProfile,
@@ -238,6 +282,9 @@ export class OpenClawProcessManager {
         details: ["Mock runtime mode is enabled."],
         updatedAt: nowIso(),
       };
+      this.#lastHealth = health;
+      this.#lastHealthAt = Date.now();
+      return health;
     }
 
     const binaryVersion = await this.getBinaryVersion();
@@ -257,6 +304,7 @@ export class OpenClawProcessManager {
       };
 
       this.#lastHealth = health;
+      this.#lastHealthAt = Date.now();
       return health;
     }
 
@@ -294,6 +342,7 @@ export class OpenClawProcessManager {
     };
 
     this.#lastHealth = health;
+    this.#lastHealthAt = Date.now();
     return health;
   }
 
@@ -302,6 +351,9 @@ export class OpenClawProcessManager {
   }
 
   async restart() {
+    this.#lastHealth = null;
+    this.#lastHealthAt = 0;
+
     if (this.#env.runtimeMode === "mock") {
       return this.getHealth();
     }
@@ -315,12 +367,241 @@ export class OpenClawProcessManager {
     return this.getHealth();
   }
 
+  async ensureMainAgentCanInvoke(runtimeAgentId: string) {
+    const changed = await this.#mutateConfig((config) => {
+      const list = Array.isArray(config.list) ? [...config.list] : [];
+      const mainIndex = list.findIndex((entry) => entry?.id === "main");
+
+      if (mainIndex < 0) {
+        return { config, changed: false };
+      }
+
+      const main = this.#normalizeConfigEntry(list[mainIndex]);
+      const subagents =
+        main.subagents && typeof main.subagents === "object"
+          ? { ...main.subagents }
+          : {};
+      const existingAllowAgents = Array.isArray(subagents.allowAgents)
+        ? subagents.allowAgents.filter(
+            (value): value is string => typeof value === "string" && value.trim().length > 0
+          )
+        : [];
+
+      if (existingAllowAgents.includes(runtimeAgentId)) {
+        return { config, changed: false };
+      }
+
+      subagents.allowAgents = [...existingAllowAgents, runtimeAgentId];
+      list[mainIndex] = {
+        ...main,
+        subagents,
+      };
+
+      return {
+        config: {
+          ...config,
+          list,
+        },
+        changed: true,
+      };
+    });
+
+    if (changed) {
+      await this.#restartAfterConfigMutation();
+    }
+  }
+
+  async removeAgentFromConfig(runtimeAgentId: string) {
+    let removedWorkspacePath: string | null = null;
+    let removedAgentDirPath: string | null = null;
+
+    const changed = await this.#mutateConfig((config) => {
+      const list = Array.isArray(config.list) ? [...config.list] : [];
+      let mutated = false;
+
+      const filteredList = list
+        .filter((entry) => {
+          if (entry?.id === runtimeAgentId) {
+            const normalized = this.#normalizeConfigEntry(entry);
+            removedWorkspacePath =
+              typeof normalized.workspace === "string" ? normalized.workspace : null;
+            removedAgentDirPath =
+              typeof normalized.agentDir === "string" ? normalized.agentDir : null;
+            mutated = true;
+            return false;
+          }
+
+          return true;
+        })
+        .map((entry) => {
+          const normalized = this.#normalizeConfigEntry(entry);
+
+          if (
+            normalized.subagents &&
+            typeof normalized.subagents === "object" &&
+            Array.isArray(normalized.subagents.allowAgents) &&
+            normalized.subagents.allowAgents.includes(runtimeAgentId)
+          ) {
+            mutated = true;
+            return {
+              ...normalized,
+              subagents: {
+                ...normalized.subagents,
+                allowAgents: normalized.subagents.allowAgents.filter(
+                  (value) => value !== runtimeAgentId
+                ),
+              },
+            };
+          }
+
+          return normalized;
+        });
+
+      return {
+        config: mutated
+          ? {
+              ...config,
+              list: filteredList,
+            }
+          : config,
+        changed: mutated,
+      };
+    });
+
+    if (changed) {
+      await this.#restartAfterConfigMutation();
+    }
+
+    return {
+      changed,
+      workspacePath: removedWorkspacePath,
+      agentDirPath: removedAgentDirPath,
+    };
+  }
+
+  async removeAgentLocalFiles(
+    runtimeAgentId: string,
+    configPaths?: {
+      workspacePath?: string | null;
+      agentDirPath?: string | null;
+    }
+  ) {
+    const candidatePaths = new Set<string>();
+
+    const addCandidate = (value: string | null | undefined) => {
+      if (!value || !value.trim()) {
+        return;
+      }
+
+      const resolvedPath = resolve(value);
+
+      if (!this.#pathIsInsideOpenClawStateDir(resolvedPath)) {
+        return;
+      }
+
+      candidatePaths.add(resolvedPath);
+    };
+
+    addCandidate(configPaths?.workspacePath ?? null);
+    addCandidate(configPaths?.agentDirPath ?? null);
+    if (configPaths?.agentDirPath) {
+      addCandidate(dirname(configPaths.agentDirPath));
+    }
+    addCandidate(`${this.#env.openclawStateDir}/workspace-${runtimeAgentId}`);
+    addCandidate(`${this.#env.openclawStateDir}/agents/${runtimeAgentId}/agent`);
+    addCandidate(`${this.#env.openclawStateDir}/agents/${runtimeAgentId}`);
+
+    for (const targetPath of candidatePaths) {
+      await rm(targetPath, { recursive: true, force: true });
+    }
+  }
+
   #buildCommandEnv() {
     return {
       ...process.env,
       OPENCLAW_CONFIG_PATH: this.#env.openclawConfigPath,
       OPENCLAW_STATE_DIR: this.#env.openclawStateDir,
     };
+  }
+
+  async #mutateConfig(
+    mutate: (config: OpenClawConfigFile) => {
+      config: OpenClawConfigFile;
+      changed: boolean;
+    }
+  ) {
+    const config = await this.#readConfigFile();
+    const result = mutate(config);
+
+    if (!result.changed) {
+      return false;
+    }
+
+    await mkdir(dirname(this.#env.openclawConfigPath), { recursive: true });
+    await writeFile(
+      this.#env.openclawConfigPath,
+      `${JSON.stringify(result.config, null, 2)}\n`,
+      "utf8"
+    );
+
+    return true;
+  }
+
+  async #readConfigFile(): Promise<OpenClawConfigFile> {
+    try {
+      const raw = await readFile(this.#env.openclawConfigPath, "utf8");
+      const parsed = JSON.parse(raw) as OpenClawConfigFile;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      ) {
+        return {};
+      }
+
+      throw error;
+    }
+  }
+
+  #normalizeConfigEntry(entry: OpenClawConfigEntry | null | undefined): OpenClawConfigEntry {
+    return entry && typeof entry === "object" ? { ...entry } : {};
+  }
+
+  #pathIsInsideOpenClawStateDir(candidatePath: string) {
+    const stateDir = resolve(this.#env.openclawStateDir);
+    const relativePath = relative(stateDir, candidatePath);
+
+    return (
+      relativePath === "" ||
+      (!relativePath.startsWith("..") && !relativePath.startsWith("../"))
+    );
+  }
+
+  async #restartAfterConfigMutation() {
+    if (this.#env.runtimeMode === "mock") {
+      return;
+    }
+
+    try {
+      await this.restart();
+    } catch {
+      // Keep config reconciliation best-effort; the next health probe will surface issues.
+    }
+  }
+
+  async #restartAfterAgentMutation() {
+    if (this.#env.runtimeMode === "mock") {
+      return;
+    }
+
+    try {
+      await this.restart();
+    } catch {
+      // Keep agent mutation best-effort; health and runtime checks will surface failures.
+    }
   }
 
   #extractJsonPayload(text: string) {

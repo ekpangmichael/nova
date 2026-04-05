@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import mime from "mime-types";
+import { THINKING_LEVELS } from "@nova/shared";
 import { badRequest } from "../lib/errors.js";
 import { parseOrThrow } from "../lib/http.js";
 
@@ -39,7 +40,8 @@ const patchTaskSchema = createTaskSchema
 const addCommentSchema = z.object({
   authorType: z.enum(["user", "agent", "system"]).optional(),
   authorId: z.string().nullable().optional(),
-  body: z.string().min(1),
+  body: z.string().optional().default(""),
+  thinkingLevel: z.enum(THINKING_LEVELS).nullable().optional(),
 });
 
 const paramsSchema = z.object({
@@ -74,6 +76,53 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/tasks/:taskId/comments", async (request) => {
     const { taskId } = parseOrThrow(paramsSchema, request.params);
+
+    if (request.isMultipart()) {
+      const fields: Record<string, string> = {};
+      const attachments: Array<{
+        fileName: string;
+        mimeType: string;
+        buffer: Buffer;
+      }> = [];
+
+      for await (const part of request.parts()) {
+        if (part.type === "file") {
+          const buffer = await part.toBuffer();
+
+          attachments.push({
+            fileName: part.filename || "attachment",
+            mimeType:
+              part.mimetype || mime.lookup(part.filename || "") || "application/octet-stream",
+            buffer,
+          });
+          continue;
+        }
+
+        fields[part.fieldname] = String(part.value ?? "");
+      }
+
+      const body = parseOrThrow(addCommentSchema, {
+        authorType: fields.authorType || undefined,
+        authorId: fields.authorId === "" ? null : fields.authorId ?? undefined,
+        body: fields.body ?? "",
+        thinkingLevel: fields.thinkingLevel ?? undefined,
+      });
+
+      if (!body.authorType || body.authorType === "user") {
+        return app.services.nova.addTaskComment(taskId, {
+          ...body,
+          authorType: "user",
+          authorId: request.authSession?.user.displayName ?? body.authorId ?? null,
+          attachments,
+        });
+      }
+
+      return app.services.nova.addTaskComment(taskId, {
+        ...body,
+        attachments,
+      });
+    }
+
     const body = parseOrThrow(addCommentSchema, request.body);
 
     if (!body.authorType || body.authorType === "user") {
@@ -91,6 +140,31 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     const { taskId } = parseOrThrow(paramsSchema, request.params);
     return app.services.nova.getTaskComments(taskId);
   });
+
+  app.get(
+    "/tasks/:taskId/comments/:commentId/attachments/:attachmentId/content",
+    async (request, reply) => {
+      const { taskId } = parseOrThrow(paramsSchema, request.params);
+      const commentParams = parseOrThrow(
+        z.object({
+          taskId: z.string().uuid(),
+          commentId: z.string().uuid(),
+          attachmentId: z.string().uuid(),
+        }),
+        request.params
+      );
+
+      const file = await app.services.nova.getTaskCommentAttachmentContent(
+        taskId,
+        commentParams.commentId,
+        commentParams.attachmentId
+      );
+
+      reply.header("Content-Type", file.mimeType);
+      reply.header("Content-Disposition", `inline; filename="${file.fileName}"`);
+      return reply.send(file.buffer);
+    }
+  );
 
   app.post("/tasks/:taskId/attachments", async (request) => {
     const { taskId } = parseOrThrow(paramsSchema, request.params);

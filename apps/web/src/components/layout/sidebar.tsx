@@ -11,8 +11,19 @@ import {
 } from "@/lib/board-project-preference";
 import { getAgents, getProjects, type ApiAgent, type ApiProjectSummary } from "@/lib/api";
 
-const systemLinks = [
-  { href: "/settings", icon: "settings", label: "Settings" },
+type NavLink = {
+  href: string;
+  icon: string;
+  label: string;
+  count?: string;
+  countColor?: string;
+  match?: "dashboard" | "projects" | "agents" | "tasks";
+  tourId?: string;
+};
+
+const systemLinks: NavLink[] = [
+  { href: "/runtimes", icon: "memory", label: "Runtimes", tourId: "nav-runtimes" },
+  { href: "/settings", icon: "settings", label: "Settings", tourId: "nav-settings" },
 ];
 
 type SidebarProps = {
@@ -67,13 +78,14 @@ export function Sidebar({ sessionUser }: SidebarProps) {
     projects.find((project) => project.id === preferredBoardProjectId) ?? null;
   const primaryBoardProject = preferredBoardProject ?? projects[0] ?? null;
   const overviewLinks: NavLink[] = [
-    { href: "/", icon: "dashboard", label: "Dashboard", match: "dashboard" },
+    { href: "/", icon: "dashboard", label: "Dashboard", match: "dashboard", tourId: "nav-dashboard" },
     {
       href: "/projects",
       icon: "folder_open",
       label: "Projects",
       count: projects.length > 0 ? String(projects.length) : undefined,
       match: "projects",
+      tourId: "nav-projects",
     },
     {
       href: "/agents",
@@ -82,12 +94,14 @@ export function Sidebar({ sessionUser }: SidebarProps) {
       count: agents.length > 0 ? String(agents.length) : undefined,
       countColor: "text-tertiary/40",
       match: "agents",
+      tourId: "nav-agents",
     },
     {
       href: primaryBoardProject ? `/projects/${primaryBoardProject.id}/board` : "/projects",
       icon: "view_kanban",
       label: "Tasks",
       match: "tasks",
+      tourId: "nav-tasks",
     },
   ];
 
@@ -113,14 +127,14 @@ export function Sidebar({ sessionUser }: SidebarProps) {
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-surface-container-low flex flex-col z-40 ghost-r">
+    <aside data-tour-id="sidebar" className="fixed left-0 top-0 h-screen w-64 bg-surface-container-low flex flex-col z-40 ghost-r">
       {/* Brand */}
       <div className="px-6 pt-7 pb-5">
         <h1 className="text-[17px] font-extrabold tracking-[-0.04em] text-on-surface">
           Nova
         </h1>
         <p className="font-mono text-[8px] text-primary/25 uppercase tracking-[0.25em] mt-0.5">
-          Protocol v1.0
+          Agent Management
         </p>
       </div>
 
@@ -159,22 +173,13 @@ export function Sidebar({ sessionUser }: SidebarProps) {
               size={14}
               className="shrink-0"
             />
-            <span>{isSigningOut ? "Exit..." : "Exit"}</span>
+            <span>{isSigningOut ? "Signing out..." : "Sign out"}</span>
           </button>
         </div>
       </div>
     </aside>
   );
 }
-
-type NavLink = {
-  href: string;
-  icon: string;
-  label: string;
-  count?: string;
-  countColor?: string;
-  match?: "dashboard" | "projects" | "agents" | "tasks";
-};
 
 function NavSection({ label, links }: { label: string; links: NavLink[] }) {
   const pathname = usePathname();
@@ -202,15 +207,16 @@ function NavSection({ label, links }: { label: string; links: NavLink[] }) {
           <Link
             key={`${label}-${link.label}`}
             href={link.href}
+            data-tour-id={link.tourId}
             className={
               isActive
-                ? "nav-active flex items-center gap-3 px-4 py-2.5 text-on-surface border-l-2 border-secondary rounded-r transition-all duration-200"
-                : "flex items-center gap-3 px-4 py-2.5 text-on-surface-variant/40 hover:text-on-surface-variant/70 hover:bg-surface-container/30 border-l-2 border-transparent transition-all duration-200"
+                ? "nav-active flex items-center gap-3 px-4 py-2.5 nav-active-bg rounded-lg transition-all duration-200"
+                : "flex items-center gap-3 px-4 py-2.5 text-on-surface-variant/40 hover:text-on-surface-variant/70 hover:bg-surface-container/30 rounded-lg transition-all duration-200"
             }
           >
             <Icon
               name={link.icon}
-              className={isActive ? "text-secondary" : undefined}
+              className={isActive ? "nav-active-icon" : undefined}
             />
             <span className="text-[13px] font-medium">{link.label}</span>
             {link.count && (

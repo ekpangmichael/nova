@@ -166,47 +166,43 @@ export default async function BoardPage({
       }));
 
     return (
-      <div className="-m-8 flex min-h-[calc(100vh-3.5rem)] flex-col pb-24">
-        <div className="flex shrink-0 items-center gap-4 px-6 py-3 ghost-b">
-          <Link
-            href={`/projects/${id}`}
-            className="flex shrink-0 items-center gap-1 text-sm text-on-surface-variant transition-colors hover:text-on-surface"
-          >
-            <Icon name="arrow_back" size={16} />
-          </Link>
-          <div className="flex items-center gap-2 rounded-sm bg-surface-container px-3 py-1.5 ghost">
-            <span className="text-xs font-mono text-secondary">PROJECT_ID</span>
-            <ProjectBoardSelector
-              currentProjectId={id}
-              projects={projects.map((entry) => ({
-                id: entry.id,
-                name: entry.name,
-              }))}
-            />
-          </div>
-          <div className="h-4 w-px bg-outline-variant/30" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-on-surface">{project.name}</p>
-          </div>
-          <div className="relative ml-auto">
-            <Icon
-              name="search"
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
-            />
-            <input
-              type="text"
-              className="w-64 rounded-sm border-none bg-surface-container-low py-1.5 pl-9 pr-4 text-xs placeholder:text-on-surface-variant/50 focus:ring-1 focus:ring-secondary/40"
-              placeholder="Filter tasks, agents, or logs..."
-            />
+      <div className="relative flex h-full flex-col">
+        <div className="flex-1 overflow-y-auto pr-2 scrollbar-thin">
+          <div className="mx-auto max-w-4xl pb-16">
+            {/* Header */}
+            <div className="mb-6 anim-1">
+              <div className="flex items-center gap-3">
+                <Link
+                  href={`/projects/${id}`}
+                  className="flex shrink-0 items-center gap-1.5 text-[13px] text-on-surface-variant/40 transition-colors hover:text-on-surface-variant/70"
+                >
+                  <Icon name="arrow_back" size={14} />
+                </Link>
+                <ProjectBoardSelector
+                  currentProjectId={id}
+                  projects={projects.map((entry) => ({
+                    id: entry.id,
+                    name: entry.name,
+                  }))}
+                />
+                <span className="text-outline-variant/15">|</span>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] text-on-surface-variant/40">{project.name}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Board – no anim wrapper; CSS transforms break DragOverlay fixed positioning */}
+            <div>
+              <KanbanBoardShell initialColumns={buildColumns(projectTasks)} projectId={id} />
+            </div>
           </div>
         </div>
 
-        <div className="scrollbar-thin flex-1 overflow-x-auto overflow-y-visible">
-          <KanbanBoardShell initialColumns={buildColumns(projectTasks)} projectId={id} />
+        {/* Agent bar — full width, pinned to bottom */}
+        <div className="shrink-0 border-t border-outline-variant/8 bg-surface/60 backdrop-blur-xl">
+          <AgentBar agents={agentsForBar} />
         </div>
-
-        <AgentBar agents={agentsForBar} />
       </div>
     );
   } catch (error) {

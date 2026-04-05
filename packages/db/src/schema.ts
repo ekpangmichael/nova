@@ -28,8 +28,28 @@ const updatedAtColumn = () => text("updated_at").notNull();
 export const settings = sqliteTable("settings", {
   id: requiredText("id").primaryKey(),
   mode: requiredText("mode").$type<"local">(),
+  runtimeMode: requiredText("runtime_mode").$type<"mock" | "openclaw">(),
+  openclawEnabled: integer("openclaw_enabled", { mode: "boolean" })
+    .notNull()
+    .default(true),
   openclawProfile: requiredText("openclaw_profile"),
   openclawBinaryPath: requiredText("openclaw_binary_path"),
+  openclawConfigPath: requiredText("openclaw_config_path"),
+  openclawStateDir: requiredText("openclaw_state_dir"),
+  codexEnabled: integer("codex_enabled", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  codexBinaryPath: requiredText("codex_binary_path"),
+  codexConfigPath: requiredText("codex_config_path"),
+  codexStateDir: requiredText("codex_state_dir"),
+  codexDefaultModel: text("codex_default_model"),
+  claudeEnabled: integer("claude_enabled", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  claudeBinaryPath: requiredText("claude_binary_path"),
+  claudeConfigPath: requiredText("claude_config_path"),
+  claudeStateDir: requiredText("claude_state_dir"),
+  claudeDefaultModel: text("claude_default_model"),
   gatewayUrl: text("gateway_url"),
   gatewayAuthMode: requiredText("gateway_auth_mode"),
   gatewayTokenEncrypted: text("gateway_token_encrypted"),
@@ -179,6 +199,9 @@ export const tasks = sqliteTable(
     }),
     executionTargetOverride: text("execution_target_override"),
     resolvedExecutionTarget: requiredText("resolved_execution_target"),
+    gitRepoRoot: text("git_repo_root"),
+    gitBranchName: text("git_branch_name"),
+    gitBranchUrl: text("git_branch_url"),
     dueAt: text("due_at"),
     estimatedMinutes: integer("estimated_minutes"),
     labelsJson: text("labels_json"),
@@ -259,6 +282,31 @@ export const taskAttachments = sqliteTable("task_attachments", {
   sizeBytes: integer("size_bytes").notNull(),
   createdAt: createdAtColumn(),
 });
+
+export const taskCommentAttachments = sqliteTable(
+  "task_comment_attachments",
+  {
+    id: requiredText("id").primaryKey(),
+    taskId: requiredText("task_id").references(() => tasks.id, {
+      onDelete: "cascade",
+    }),
+    taskCommentId: requiredText("task_comment_id").references(() => taskComments.id, {
+      onDelete: "cascade",
+    }),
+    fileName: requiredText("file_name"),
+    mimeType: requiredText("mime_type"),
+    relativeStoragePath: requiredText("relative_storage_path"),
+    sha256: requiredText("sha256"),
+    sizeBytes: integer("size_bytes").notNull(),
+    createdAt: createdAtColumn(),
+  },
+  (table) => ({
+    commentCreatedIndex: index("task_comment_attachments_comment_created_idx").on(
+      table.taskCommentId,
+      table.createdAt
+    ),
+  })
+);
 
 export const taskRuns = sqliteTable(
   "task_runs",
@@ -341,6 +389,7 @@ export const schema = {
   taskDependencies,
   taskComments,
   taskAttachments,
+  taskCommentAttachments,
   taskRuns,
   runEvents,
   runArtifacts,

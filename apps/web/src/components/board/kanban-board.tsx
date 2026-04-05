@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   DragOverlay,
@@ -292,14 +293,14 @@ export function KanbanBoard({
     return (
       <>
         {errorMessage ? (
-          <div className="px-6 pt-4">
+          <div className="pt-4">
             <div className="rounded-sm border border-error/30 bg-error/8 px-4 py-3 text-sm text-error">
               {errorMessage}
             </div>
           </div>
         ) : null}
 
-        <div className="flex min-w-max items-start gap-2 p-6 pb-24">
+        <div className="flex items-start gap-2 overflow-x-auto scrollbar-thin pb-4">
           {columns.map((column) => (
             <StaticColumn key={column.id} column={column} projectId={projectId} />
           ))}
@@ -324,19 +325,22 @@ export function KanbanBoard({
         </div>
       ) : null}
 
-      <div className="flex min-w-max items-start gap-2 p-6 pb-24">
+      <div className="flex items-start gap-2 overflow-x-auto scrollbar-thin pb-4">
         {columns.map((column) => (
           <DroppableColumn key={column.id} column={column} projectId={projectId} />
         ))}
       </div>
 
-      <DragOverlay>
-        {activeTask ? (
-          <div className="rotate-[2deg] scale-105 opacity-90">
-            <TaskCard task={activeTask.task} accentColor={activeTask.accentColor} />
-          </div>
-        ) : null}
-      </DragOverlay>
+      {createPortal(
+        <DragOverlay>
+          {activeTask ? (
+            <div className="rotate-[2deg] scale-105 opacity-90">
+              <TaskCard task={activeTask.task} accentColor={activeTask.accentColor} />
+            </div>
+          ) : null}
+        </DragOverlay>,
+        document.body,
+      )}
     </DndContext>
   );
 }
@@ -351,13 +355,13 @@ function ColumnHeader({
   return (
     <div className="flex items-center justify-between px-1">
       <div className="flex items-center gap-2">
-        <span className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant/60">
           {column.title}
         </span>
         <span
-          className={`rounded-full px-1.5 py-0.5 text-[10px] font-mono ${countBg[column.accentColor]}`}
+          className={`rounded-md px-1.5 py-0.5 text-[10px] font-mono text-on-surface-variant/30 bg-surface-container-high/40`}
         >
-          {String(column.count).padStart(2, "0")}
+          {column.count}
         </span>
       </div>
       {column.id === "backlog" ? (
@@ -381,13 +385,13 @@ function StaticColumn({
 }) {
   return (
     <section
-      className={`flex min-w-[248px] max-w-[248px] self-start flex-col gap-4 ${
+      className={`flex w-[220px] shrink-0 flex-col gap-4 ${
         column.dimmed ? "opacity-70 transition-opacity hover:opacity-100" : ""
       }`}
     >
       <ColumnHeader column={column} projectId={projectId} />
 
-      <div className="scrollbar-thin flex min-h-[100px] flex-col gap-3 rounded-sm pr-2">
+      <div className="scrollbar-thin flex min-h-[100px] flex-col gap-3 rounded-sm">
         {column.tasks.map((task) => (
           <TaskCard
             key={task.id}
@@ -421,7 +425,7 @@ function DroppableColumn({
       id={column.id}
     >
       <section
-        className={`flex min-w-[248px] max-w-[248px] self-start flex-col gap-4 ${
+        className={`flex w-[220px] shrink-0 flex-col gap-4 ${
           column.dimmed ? "opacity-70 transition-opacity hover:opacity-100" : ""
         }`}
       >
@@ -429,7 +433,7 @@ function DroppableColumn({
 
         <div
           ref={setNodeRef}
-          className={`scrollbar-thin flex min-h-[100px] flex-col gap-3 rounded-sm pr-2 transition-colors ${
+          className={`scrollbar-thin flex min-h-[100px] flex-col gap-3 rounded-sm transition-colors ${
             isOver ? "bg-surface-container-high/30" : ""
           }`}
         >

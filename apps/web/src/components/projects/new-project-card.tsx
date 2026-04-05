@@ -15,10 +15,10 @@ export function NewProjectCard() {
         />
       </div>
       <p className="text-on-surface font-bold uppercase tracking-widest text-sm">
-        Initialize New Protocol
+        New Project
       </p>
       <p className="text-on-surface-variant font-mono text-[10px] mt-1">
-        Allocate resources &amp; define parameters
+        Set up a workspace and assign agents
       </p>
     </Link>
   );

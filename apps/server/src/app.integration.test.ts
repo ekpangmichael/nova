@@ -1,13 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { agents, tasks } from "@nova/db";
+import { agents, taskRuns, tasks } from "@nova/db";
 import type { AppContext } from "./app.js";
 import { createApp } from "./app.js";
 import { normalizeAbsolutePath } from "./lib/paths.js";
+
+const execFileAsync = promisify(execFile);
 
 const wait = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -34,19 +38,72 @@ const waitFor = async <T>(
   throw new Error("Timed out while waiting for the expected condition.");
 };
 
-const buildMultipartBody = (fileName: string, content: Buffer | string) => {
+const buildMultipartBody = (
+  fileName: string,
+  content: Buffer | string,
+  mimeType = "text/plain"
+) => {
   const boundary = `----nova-${Date.now()}`;
   const fileBuffer = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
   const chunks = [
     Buffer.from(
       `--${boundary}\r\n` +
         `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-        "Content-Type: text/plain\r\n\r\n",
+        `Content-Type: ${mimeType}\r\n\r\n`,
       "utf8"
     ),
     fileBuffer,
     Buffer.from(`\r\n--${boundary}--\r\n`, "utf8"),
   ];
+
+  return {
+    payload: Buffer.concat(chunks),
+    headers: {
+      "content-type": `multipart/form-data; boundary=${boundary}`,
+    },
+  };
+};
+
+const buildMultipartFormBody = (input: {
+  fields?: Record<string, string>;
+  files?: Array<{
+    fieldName?: string;
+    fileName: string;
+    content: Buffer | string;
+    mimeType?: string;
+  }>;
+}) => {
+  const boundary = `----nova-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const chunks: Buffer[] = [];
+
+  for (const [fieldName, value] of Object.entries(input.fields ?? {})) {
+    chunks.push(
+      Buffer.from(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${fieldName}"\r\n\r\n` +
+          `${value}\r\n`,
+        "utf8"
+      )
+    );
+  }
+
+  for (const file of input.files ?? []) {
+    const fileBuffer = Buffer.isBuffer(file.content)
+      ? file.content
+      : Buffer.from(file.content, "utf8");
+    chunks.push(
+      Buffer.from(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${file.fieldName ?? "files"}"; filename="${file.fileName}"\r\n` +
+          `Content-Type: ${file.mimeType ?? "application/octet-stream"}\r\n\r\n`,
+        "utf8"
+      )
+    );
+    chunks.push(fileBuffer);
+    chunks.push(Buffer.from("\r\n", "utf8"));
+  }
+
+  chunks.push(Buffer.from(`--${boundary}--\r\n`, "utf8"));
 
   return {
     payload: Buffer.concat(chunks),
@@ -99,6 +156,29 @@ const readErrorMessage = (response: { body: string }) => {
   return parsed.error?.message ?? "";
 };
 
+const runGit = async (cwd: string, args: string[]) => {
+  return execFileAsync("git", ["-c", "commit.gpgsign=false", ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+    },
+  });
+};
+
+const initGitRepo = async (repoPath: string, remoteUrl?: string) => {
+  await runGit(repoPath, ["init", "-b", "main"]);
+  await writeFile(join(repoPath, "README.md"), "# Nova Test Repo\n", "utf8");
+
+  if (remoteUrl) {
+    try {
+      await runGit(repoPath, ["remote", "set-url", "origin", remoteUrl]);
+    } catch {
+      await runGit(repoPath, ["remote", "add", "origin", remoteUrl]);
+    }
+  }
+};
+
 const createTestContext = async (
   overrides: Partial<NodeJS.ProcessEnv> = {}
 ): Promise<{ context: AppContext; appDataDir: string }> => {
@@ -136,6 +216,252 @@ const createAuthHeaders = async (
   return {
     "x-nova-session-token": session.sessionToken,
   };
+};
+
+const createMockCodexCli = async (
+  rootDir: string,
+  options?: {
+    version?: string;
+    loginStatus?: string;
+  }
+) => {
+  const binaryPath = join(rootDir, "mock-codex");
+  const threadId = "11111111-1111-4111-8111-111111111111";
+  const script = `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const THREAD_ID = ${JSON.stringify(threadId)};
+const write = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
+if (args.length === 1 && args[0] === "--version") {
+  process.stdout.write(${JSON.stringify(options?.version ?? "codex-cli 0.117.0")} + "\\n");
+  process.exit(0);
+}
+if (args[0] === "login" && args[1] === "status") {
+  process.stdout.write(${JSON.stringify(options?.loginStatus ?? "Logged in using ChatGPT")} + "\\n");
+  process.exit(0);
+}
+if (args[0] === "exec") {
+  let prompt = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => {
+    prompt += chunk;
+  });
+  process.stdin.on("end", () => {
+    const isResume = args[1] === "resume";
+    const progress = isResume
+      ? "I'll inspect the copy before making the requested revision."
+      : "I'll inspect the landing page files before making changes.";
+    const reply = prompt.includes("fast delivery")
+      ? "Updated the landing page copy to mention fast delivery."
+      : "Implemented the first Codex task pass.";
+    write({ type: "thread.started", thread_id: THREAD_ID });
+    write({ type: "turn.started" });
+    write({
+      type: "item.completed",
+      item: { id: isResume ? "assistant-progress-2" : "assistant-progress-1", type: "agent_message", text: progress }
+    });
+    write({
+      type: "item.started",
+      item: { type: "file_change", changes: [{ path: isResume ? "copy.txt" : "page.tsx", kind: isResume ? "modified" : "created" }] }
+    });
+    write({
+      type: "item.completed",
+      item: { type: "file_change", changes: [{ path: isResume ? "copy.txt" : "page.tsx", kind: isResume ? "modified" : "created" }] }
+    });
+    write({
+      type: "item.completed",
+      item: { id: isResume ? "assistant-msg-2" : "assistant-msg-1", type: "agent_message", text: reply }
+    });
+    write({ type: "turn.completed", usage: { input_tokens: 32, output_tokens: 16 } });
+    process.exit(0);
+  });
+  process.stdin.resume();
+  return;
+}
+process.stderr.write("unsupported command\\n");
+process.exit(1);
+`;
+
+  await writeFile(binaryPath, script, "utf8");
+  await chmod(binaryPath, 0o755);
+
+  return binaryPath;
+};
+
+const createMockClaudeCli = async (
+  rootDir: string,
+  options?: {
+    version?: string;
+    email?: string;
+    subscriptionType?: string;
+    failFirstRunWithMaxTurns?: boolean;
+  }
+) => {
+  const binaryPath = join(rootDir, "mock-claude");
+  const sessionId = "22222222-2222-4222-8222-222222222222";
+  const invocationStatePath = join(rootDir, "mock-claude-invocations.txt");
+  const script = `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const SESSION_ID = ${JSON.stringify(sessionId)};
+const INVOCATION_STATE_PATH = ${JSON.stringify(invocationStatePath)};
+const write = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
+if (args.length === 1 && args[0] === "--version") {
+  process.stdout.write(${JSON.stringify(options?.version ?? "2.1.72 (Claude Code)")} + "\\n");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  process.stdout.write(JSON.stringify({
+    loggedIn: true,
+    authMethod: "claude.ai",
+    apiProvider: "firstParty",
+    email: ${JSON.stringify(options?.email ?? "claude@example.com")},
+    subscriptionType: ${JSON.stringify(options?.subscriptionType ?? "max")}
+  }, null, 2) + "\\n");
+  process.exit(0);
+}
+if (args.includes("-p")) {
+  let invocationCount = 0;
+  if (fs.existsSync(INVOCATION_STATE_PATH)) {
+    invocationCount = Number(fs.readFileSync(INVOCATION_STATE_PATH, "utf8")) || 0;
+  }
+  invocationCount += 1;
+  fs.writeFileSync(INVOCATION_STATE_PATH, String(invocationCount), "utf8");
+  const resumeIndex = args.indexOf("--resume");
+  const isResume = resumeIndex >= 0;
+  const shouldFailWithMaxTurns =
+    ${options?.failFirstRunWithMaxTurns ? "true" : "false"} &&
+    invocationCount === 1;
+  const prompt = args.at(-1) ?? "";
+  const progress = isResume
+    ? "I'll inspect the current copy before applying the requested revision."
+    : "I'll inspect the task files and execution target before implementing.";
+  const reply = prompt.includes("fast delivery")
+    ? "Updated the landing page copy to mention fast delivery."
+    : "Implemented the first Claude task pass.";
+  write({
+    type: "system",
+    subtype: "init",
+    session_id: SESSION_ID,
+    model: "claude-sonnet-4-6",
+    permissionMode: args.includes("bypassPermissions") ? "bypassPermissions" : "acceptEdits"
+  });
+  write({
+    type: "assistant",
+    message: {
+      id: isResume ? "assistant-tool-2" : "assistant-tool-1",
+      content: [
+        {
+          type: "tool_use",
+          id: isResume ? "tool-use-2" : "tool-use-1",
+          name: "Write",
+          input: {
+            file_path: isResume ? "/workspace/copy.txt" : "/workspace/page.tsx",
+            content: isResume ? "fast delivery" : "initial pass"
+          }
+        }
+      ]
+    },
+    session_id: SESSION_ID
+  });
+  write({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          tool_use_id: isResume ? "tool-use-2" : "tool-use-1",
+          type: "tool_result",
+          content: "ok"
+        }
+      ]
+    },
+    tool_use_result: {
+      type: isResume ? "edit" : "create",
+      filePath: isResume ? "/workspace/copy.txt" : "/workspace/page.tsx"
+    },
+    session_id: SESSION_ID
+  });
+  write({
+    type: "assistant",
+    message: {
+      id: isResume ? "assistant-progress-2" : "assistant-progress-1",
+      content: [
+        {
+          type: "text",
+          text: progress
+        }
+      ]
+    },
+    session_id: SESSION_ID
+  });
+  write({
+    type: "stream_event",
+    event: {
+      type: "message_start",
+      message: {
+        id: isResume ? "assistant-msg-2" : "assistant-msg-1"
+      }
+    },
+    session_id: SESSION_ID
+  });
+  write({
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      delta: {
+        type: "text_delta",
+        text: reply
+      }
+    },
+    session_id: SESSION_ID
+  });
+  write({
+    type: "assistant",
+    message: {
+      id: isResume ? "assistant-msg-2" : "assistant-msg-1",
+      content: [
+        {
+          type: "text",
+          text: reply
+        }
+      ]
+    },
+    session_id: SESSION_ID
+  });
+  if (shouldFailWithMaxTurns) {
+    write({
+      type: "result",
+      subtype: "error_max_turns",
+      is_error: true,
+      session_id: SESSION_ID,
+      usage: {
+        input_tokens: 24,
+        output_tokens: 12
+      }
+    });
+    process.exit(1);
+  }
+  write({
+    type: "result",
+    subtype: "success",
+    is_error: false,
+    result: reply,
+    session_id: SESSION_ID,
+    usage: {
+      input_tokens: 24,
+      output_tokens: 12
+    }
+  });
+  process.exit(0);
+}
+process.stderr.write("unsupported command\\n");
+process.exit(1);
+`;
+
+  await writeFile(binaryPath, script, "utf8");
+  await chmod(binaryPath, 0o755);
+
+  return binaryPath;
 };
 
 describe("server integration", () => {
@@ -280,6 +606,1065 @@ describe("server integration", () => {
     expect(googleLinkResponse.statusCode).toBe(200);
     expect(googleLinkBody.user.email).toBe(linkedEmail);
     expect(googleLinkBody.user.displayName).toBe("Linked via Google");
+  });
+
+  it("returns detected Codex config and persists Codex runtime overrides", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-codex-config-"));
+    const codexStateDir = join(appDataDir, "codex-home");
+    const codexConfigPath = join(codexStateDir, "config.toml");
+    await mkdir(codexStateDir, { recursive: true });
+    await writeFile(
+      codexConfigPath,
+      'model = "gpt-5.4"\nmodel_reasoning_effort = "high"\n',
+      "utf8"
+    );
+    await writeFile(
+      join(codexStateDir, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: "test-access",
+        },
+        last_refresh: "2026-03-31T17:00:00.000Z",
+      }),
+      "utf8"
+    );
+    const codexBinaryPath = await createMockCodexCli(appDataDir);
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CODEX_BINARY_PATH: codexBinaryPath,
+        CODEX_STATE_DIR: codexStateDir,
+        CODEX_CONFIG_PATH: codexConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Codex Operator",
+      email: "codex-config@example.com",
+    });
+
+    const configResponse = await currentContext.app.inject({
+      method: "GET",
+      url: "/api/runtimes/codex/config",
+      headers: authHeaders,
+    });
+
+    expect(configResponse.statusCode).toBe(200);
+    const configBody = configResponse.json();
+    expect(configBody.health.mode).toBe("codex");
+    expect(configBody.health.status).toBe("healthy");
+    expect(configBody.current.binaryPath).toBe(codexBinaryPath);
+    expect(configBody.current.defaultModel).toBe("gpt-5.4");
+    expect(configBody.auth.status).toBe("logged_in");
+
+    const catalogResponse = await currentContext.app.inject({
+      method: "GET",
+      url: "/api/runtimes/codex/catalog",
+      headers: authHeaders,
+    });
+
+    expect(catalogResponse.statusCode).toBe(200);
+    const catalogBody = catalogResponse.json();
+    const codexModelIds = catalogBody.models.map((model: { id: string }) => model.id);
+    expect(codexModelIds).toEqual(
+      expect.arrayContaining([
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-5.2-codex",
+        "gpt-5.2",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+      ])
+    );
+    expect(codexModelIds).not.toContain("gpt-5.3-codex-spark");
+
+    const { response: patchResponse, body: patchBody } = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/codex/config",
+      {
+        binaryPath: codexBinaryPath,
+        stateDir: codexStateDir,
+        configPath: codexConfigPath,
+        defaultModel: "gpt-5.3-codex",
+      },
+      authHeaders
+    );
+
+    expect(patchResponse.statusCode).toBe(200);
+    expect(patchBody.current.defaultModel).toBe("gpt-5.3-codex");
+
+    const persistedSettings = await currentContext.services.db.query.settings.findFirst();
+    expect(persistedSettings?.codexBinaryPath).toBe(codexBinaryPath);
+    expect(persistedSettings?.codexStateDir).toBe(codexStateDir);
+    expect(persistedSettings?.codexConfigPath).toBe(codexConfigPath);
+    expect(persistedSettings?.codexDefaultModel).toBe("gpt-5.3-codex");
+  });
+
+  it("persists runtime enabled flags", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-runtime-toggle-"));
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Runtime Operator",
+      email: "runtime-toggle@example.com",
+    });
+
+    const codexToggle = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/codex/enabled",
+      { enabled: false },
+      authHeaders
+    );
+    expect(codexToggle.response.statusCode).toBe(200);
+    expect(codexToggle.body.enabled).toBe(false);
+
+    const claudeToggle = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/claude/enabled",
+      { enabled: false },
+      authHeaders
+    );
+    expect(claudeToggle.response.statusCode).toBe(200);
+    expect(claudeToggle.body.enabled).toBe(false);
+
+    const openclawToggle = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/openclaw/enabled",
+      { enabled: false },
+      authHeaders
+    );
+    expect(openclawToggle.response.statusCode).toBe(200);
+    expect(openclawToggle.body.enabled).toBe(false);
+
+    const persistedSettings = await currentContext.services.db.query.settings.findFirst();
+    expect(persistedSettings?.codexEnabled).toBe(false);
+    expect(persistedSettings?.claudeEnabled).toBe(false);
+    expect(persistedSettings?.openclawEnabled).toBe(false);
+  });
+
+  it("blocks agent creation and task start when a runtime is disabled", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Disabled Runtime Operator",
+      email: "disabled-runtime@example.com",
+    });
+
+    const disableCodexResponse = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/codex/enabled",
+      { enabled: false },
+      authHeaders
+    );
+    expect(disableCodexResponse.response.statusCode).toBe(200);
+
+    const createCodexAgentResponse = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Blocked Codex Agent",
+        role: "Implementation",
+        runtime: {
+          kind: "codex",
+          defaultModelId: "gpt-5.4",
+          sandboxMode: "off",
+          defaultThinkingLevel: "medium",
+        },
+      },
+      authHeaders
+    );
+
+    expect(createCodexAgentResponse.response.statusCode).toBe(503);
+    expect(createCodexAgentResponse.body.message).toContain("Codex runtime is disabled");
+
+    const { body: project } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/projects",
+      {
+        name: "Disabled Runtime Project",
+        description: "Checks disabled runtime enforcement.",
+        projectRoot: "projects/disabled-runtime",
+        seedType: "none",
+      },
+      authHeaders
+    );
+
+    const { body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Blocked OpenClaw Agent",
+        role: "Implementation",
+        systemInstructions: "Stay focused.",
+      },
+      authHeaders
+    );
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`,
+      undefined,
+      authHeaders
+    );
+
+    const { body: task } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/tasks",
+      {
+        projectId: project.id,
+        title: "Start should fail",
+        assignedAgentId: agent.id,
+      },
+      authHeaders
+    );
+
+    const disableOpenClawResponse = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/openclaw/enabled",
+      { enabled: false },
+      authHeaders
+    );
+    expect(disableOpenClawResponse.response.statusCode).toBe(200);
+
+    const startTaskResponse = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`,
+      undefined,
+      authHeaders
+    );
+
+    expect(startTaskResponse.response.statusCode).toBe(503);
+    expect(startTaskResponse.body.message).toContain("OpenClaw runtime is disabled");
+  });
+
+  it("creates a Codex-backed agent using detected local Codex defaults", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-codex-agent-"));
+    const codexStateDir = join(appDataDir, "codex-home");
+    const codexConfigPath = join(codexStateDir, "config.toml");
+    await mkdir(codexStateDir, { recursive: true });
+    await writeFile(codexConfigPath, 'model = "gpt-5.4"\n', "utf8");
+    await writeFile(
+      join(codexStateDir, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: "test-access",
+        },
+      }),
+      "utf8"
+    );
+    const codexBinaryPath = await createMockCodexCli(appDataDir);
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CODEX_BINARY_PATH: codexBinaryPath,
+        CODEX_STATE_DIR: codexStateDir,
+        CODEX_CONFIG_PATH: codexConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Codex Operator",
+      email: "codex-agent@example.com",
+    });
+
+    const { response, body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Codex Builder",
+        role: "Implementation",
+        systemInstructions: "Keep changes surgical.",
+        toolsText: "Use repo tools conservatively.",
+        runtime: {
+          kind: "codex",
+          defaultModelId: "gpt-5.4",
+          sandboxMode: "off",
+          defaultThinkingLevel: "high",
+        },
+      },
+      authHeaders
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(agent.runtime.kind).toBe("codex");
+    expect(agent.runtime.defaultModelId).toBe("gpt-5.4");
+    expect(agent.runtime.workspacePath).toContain("/agent-homes/");
+    expect(agent.runtime.runtimeStatePath).toContain("/codex-home/nova-agents/");
+    await expect(access(join(agent.runtime.workspacePath, "AGENTS.md"))).resolves.toBeUndefined();
+  });
+
+  it("imports an existing OpenClaw agent into Nova", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Import Operator",
+      email: "import-openclaw@example.com",
+    });
+
+    const workspacePath = join(setup.appDataDir, "existing-openclaw-workspace");
+    const runtimeStatePath = join(
+      setup.appDataDir,
+      "existing-openclaw-agent-state"
+    );
+
+    await currentContext.services.runtimeManager
+      .getAdapter("openclaw-native")
+      .provisionAgent({
+        runtimeAgentId: "existing-openclaw",
+        workspacePath,
+        runtimeStatePath,
+        defaultModelId: "openai-codex/gpt-5.4",
+        modelOverrideAllowed: true,
+        sandboxMode: "off",
+        defaultThinkingLevel: "medium",
+      });
+
+    const { response, body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents/import/openclaw",
+      {
+        name: "Existing OpenClaw",
+        role: "Research",
+        systemInstructions: "Use the imported runtime identity.",
+        runtime: {
+          runtimeAgentId: "existing-openclaw",
+          defaultModelId: "openai-codex/gpt-5.4",
+          sandboxMode: "off",
+          modelOverrideAllowed: true,
+          defaultThinkingLevel: "medium",
+        },
+      },
+      authHeaders
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(agent.runtime.kind).toBe("openclaw-native");
+    expect(agent.runtime.runtimeAgentId).toBe("existing-openclaw");
+    expect(agent.runtime.workspacePath).toBe(workspacePath);
+    expect(agent.runtime.runtimeStatePath).toBe(runtimeStatePath);
+    await expect(access(join(workspacePath, "AGENTS.md"))).resolves.toBeUndefined();
+
+    const duplicateImportResponse = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents/import/openclaw",
+      {
+        name: "Existing OpenClaw",
+        role: "Research",
+        runtime: {
+          runtimeAgentId: "existing-openclaw",
+        },
+      },
+      authHeaders
+    );
+
+    expect(duplicateImportResponse.response.statusCode).toBe(409);
+    expect(duplicateImportResponse.body.message).toContain("already imported");
+  });
+
+  it("returns detected Claude config and persists Claude runtime overrides", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-claude-config-"));
+    const claudeStateDir = join(appDataDir, "claude-home");
+    const claudeConfigPath = join(claudeStateDir, "settings.json");
+    await mkdir(claudeStateDir, { recursive: true });
+    await writeFile(
+      claudeConfigPath,
+      JSON.stringify(
+        {
+          enabledPlugins: {
+            "frontend-design@claude-plugins-official": true,
+          },
+          defaultModel: "claude-sonnet-4-6",
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    const claudeBinaryPath = await createMockClaudeCli(appDataDir, {
+      email: "claude-config@example.com",
+    });
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CLAUDE_BINARY_PATH: claudeBinaryPath,
+        CLAUDE_STATE_DIR: claudeStateDir,
+        CLAUDE_CONFIG_PATH: claudeConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Claude Operator",
+      email: "claude-config@example.com",
+    });
+
+    const configResponse = await currentContext.app.inject({
+      method: "GET",
+      url: "/api/runtimes/claude/config",
+      headers: authHeaders,
+    });
+
+    expect(configResponse.statusCode).toBe(200);
+    const configBody = configResponse.json();
+    expect(configBody.health.mode).toBe("claude");
+    expect(configBody.health.status).toBe("healthy");
+    expect(configBody.current.binaryPath).toBe(claudeBinaryPath);
+    expect(configBody.current.defaultModel).toBe("claude-sonnet-4-6");
+    expect(configBody.auth.status).toBe("logged_in");
+
+    const catalogResponse = await currentContext.app.inject({
+      method: "GET",
+      url: "/api/runtimes/claude/catalog",
+      headers: authHeaders,
+    });
+
+    expect(catalogResponse.statusCode).toBe(200);
+    const catalogBody = catalogResponse.json();
+    expect(catalogBody.models.map((model: { id: string }) => model.id)).toEqual(
+      expect.arrayContaining([
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-haiku-4-5-20251001",
+      ])
+    );
+
+    const { response: patchResponse, body: patchBody } = await requestJson(
+      currentContext,
+      "PATCH",
+      "/api/runtimes/claude/config",
+      {
+        binaryPath: claudeBinaryPath,
+        stateDir: claudeStateDir,
+        configPath: claudeConfigPath,
+        defaultModel: "claude-opus-4-6",
+      },
+      authHeaders
+    );
+
+    expect(patchResponse.statusCode).toBe(200);
+    expect(patchBody.current.defaultModel).toBe("claude-opus-4-6");
+
+    const persistedSettings = await currentContext.services.db.query.settings.findFirst();
+    expect(persistedSettings?.claudeBinaryPath).toBe(claudeBinaryPath);
+    expect(persistedSettings?.claudeStateDir).toBe(claudeStateDir);
+    expect(persistedSettings?.claudeConfigPath).toBe(claudeConfigPath);
+    expect(persistedSettings?.claudeDefaultModel).toBe("claude-opus-4-6");
+  });
+
+  it("creates a Claude-backed agent using detected local Claude defaults", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-claude-agent-"));
+    const claudeStateDir = join(appDataDir, "claude-home");
+    const claudeConfigPath = join(claudeStateDir, "settings.json");
+    await mkdir(claudeStateDir, { recursive: true });
+    await writeFile(
+      claudeConfigPath,
+      JSON.stringify({ defaultModel: "claude-sonnet-4-6" }, null, 2),
+      "utf8"
+    );
+    const claudeBinaryPath = await createMockClaudeCli(appDataDir, {
+      email: "claude-agent@example.com",
+    });
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CLAUDE_BINARY_PATH: claudeBinaryPath,
+        CLAUDE_STATE_DIR: claudeStateDir,
+        CLAUDE_CONFIG_PATH: claudeConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Claude Operator",
+      email: "claude-agent@example.com",
+    });
+
+    const { response, body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Claude Builder",
+        role: "Design and implementation",
+        systemInstructions: "Stay concise and review-ready.",
+        toolsText: "Prefer local repo tools.",
+        runtime: {
+          kind: "claude-code",
+          defaultModelId: "claude-sonnet-4-6",
+          sandboxMode: "off",
+          defaultThinkingLevel: "high",
+        },
+      },
+      authHeaders
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(agent.runtime.kind).toBe("claude-code");
+    expect(agent.runtime.defaultModelId).toBe("claude-sonnet-4-6");
+    expect(agent.runtime.workspacePath).toContain("/agent-homes/");
+    expect(agent.runtime.runtimeStatePath).toContain("/claude-home/nova-agents/");
+    await expect(access(join(agent.runtime.workspacePath, "AGENTS.md"))).resolves.toBeUndefined();
+  });
+
+  it("runs a Claude-backed task and reuses the same Claude session for a follow-up attempt", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-claude-run-"));
+    const claudeStateDir = join(appDataDir, "claude-home");
+    const claudeConfigPath = join(claudeStateDir, "settings.json");
+    await mkdir(claudeStateDir, { recursive: true });
+    await writeFile(
+      claudeConfigPath,
+      JSON.stringify({ defaultModel: "claude-sonnet-4-6" }, null, 2),
+      "utf8"
+    );
+    const claudeBinaryPath = await createMockClaudeCli(appDataDir, {
+      email: "claude-run@example.com",
+    });
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CLAUDE_BINARY_PATH: claudeBinaryPath,
+        CLAUDE_STATE_DIR: claudeStateDir,
+        CLAUDE_CONFIG_PATH: claudeConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Claude Operator",
+      email: "claude-run@example.com",
+    });
+
+    const { body: project } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/projects",
+      {
+        name: "Claude Project",
+        description: "Checks Claude execution continuity.",
+        projectRoot: "projects/claude-project",
+        seedType: "none",
+      },
+      authHeaders
+    );
+
+    const { body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Claude Runner",
+        role: "Implementation",
+        systemInstructions: "Implement changes directly.",
+        runtime: {
+          kind: "claude-code",
+          defaultModelId: "claude-sonnet-4-6",
+          sandboxMode: "off",
+          defaultThinkingLevel: "medium",
+        },
+      },
+      authHeaders
+    );
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`,
+      undefined,
+      authHeaders
+    );
+
+    const { body: task } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/tasks",
+      {
+        projectId: project.id,
+        title: "Build the landing page",
+        description: "Create the first Claude-backed implementation.",
+        assignedAgentId: agent.id,
+      },
+      authHeaders
+    );
+
+    const startResult = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`,
+      undefined,
+      authHeaders
+    );
+    expect(startResult.response.statusCode).toBe(200);
+
+    const firstCompletedTask = await waitFor(
+      async () =>
+        (
+          await requestJson(
+            currentContext!,
+            "GET",
+            `/api/tasks/${task.id}`,
+            undefined,
+            authHeaders
+          )
+        ).body,
+      (value) =>
+        value.status === "in_review" &&
+        value.comments.some(
+          (comment: { body: string }) =>
+            comment.body === "Implemented the first Claude task pass."
+        )
+    );
+
+    expect(firstCompletedTask.currentRun).toBeNull();
+    expect(
+      firstCompletedTask.comments.some(
+        (comment: { body: string }) =>
+          comment.body === "I'll inspect the task files and execution target before implementing."
+      )
+    ).toBe(false);
+
+    const firstRunRows = await currentContext.services.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.taskId, task.id))
+      .all();
+
+    expect(firstRunRows).toHaveLength(1);
+    expect(firstRunRows[0].runtimeKind).toBe("claude-code");
+    expect(firstRunRows[0].runtimeSessionKey).toBe(
+      "22222222-2222-4222-8222-222222222222"
+    );
+
+    const commentResult = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/comments`,
+      {
+        body: `@${agent.slug} Please add fast delivery to the landing page copy.`,
+      },
+      authHeaders
+    );
+    expect(commentResult.response.statusCode).toBe(200);
+
+    const secondCompletedTask = await waitFor(
+      async () =>
+        (
+          await requestJson(
+            currentContext!,
+            "GET",
+            `/api/tasks/${task.id}`,
+            undefined,
+            authHeaders
+          )
+        ).body,
+      (value) =>
+        value.comments.some(
+          (comment: { body: string }) =>
+            comment.body === "Updated the landing page copy to mention fast delivery."
+        ) &&
+        value.recentRuns.length >= 2
+    );
+
+    const secondRunRows = await currentContext.services.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.taskId, task.id))
+      .all();
+
+    expect(secondCompletedTask.status).toBe("in_review");
+    expect(
+      secondCompletedTask.comments.some(
+        (comment: { body: string }) =>
+          comment.body === "I'll inspect the current copy before applying the requested revision."
+      )
+    ).toBe(false);
+    expect(secondRunRows).toHaveLength(2);
+    expect(secondRunRows[0].runtimeSessionKey).toBe(
+      "22222222-2222-4222-8222-222222222222"
+    );
+    expect(secondRunRows[1].runtimeSessionKey).toBe(
+      "22222222-2222-4222-8222-222222222222"
+    );
+  });
+
+  it("automatically continues a Claude run once after hitting the max turn limit", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-claude-max-turns-"));
+    const claudeStateDir = join(appDataDir, "claude-home");
+    const claudeConfigPath = join(claudeStateDir, "settings.json");
+    await mkdir(claudeStateDir, { recursive: true });
+    await writeFile(
+      claudeConfigPath,
+      JSON.stringify({ defaultModel: "claude-sonnet-4-6" }, null, 2),
+      "utf8"
+    );
+    const claudeBinaryPath = await createMockClaudeCli(appDataDir, {
+      email: "claude-max-turns@example.com",
+      failFirstRunWithMaxTurns: true,
+    });
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CLAUDE_BINARY_PATH: claudeBinaryPath,
+        CLAUDE_STATE_DIR: claudeStateDir,
+        CLAUDE_CONFIG_PATH: claudeConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Claude Operator",
+      email: "claude-max-turns@example.com",
+    });
+
+    const { body: project } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/projects",
+      {
+        name: "Claude Max Turns Project",
+        description: "Ensures Claude auto-continues once after hitting the turn cap.",
+        projectRoot: "projects/claude-max-turns",
+        seedType: "none",
+      },
+      authHeaders
+    );
+
+    const { body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Claude Resumer",
+        role: "Implementation",
+        systemInstructions: "Implement changes directly.",
+        runtime: {
+          kind: "claude-code",
+          defaultModelId: "claude-sonnet-4-6",
+          sandboxMode: "off",
+          defaultThinkingLevel: "medium",
+        },
+      },
+      authHeaders
+    );
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`,
+      undefined,
+      authHeaders
+    );
+
+    const { body: task } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/tasks",
+      {
+        projectId: project.id,
+        title: "Resume Claude after max turns",
+        description: "Create the first Claude-backed implementation.",
+        assignedAgentId: agent.id,
+      },
+      authHeaders
+    );
+
+    const startResult = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`,
+      undefined,
+      authHeaders
+    );
+    expect(startResult.response.statusCode).toBe(200);
+
+    const completedTask = await waitFor(
+      async () =>
+        (
+          await requestJson(
+            currentContext!,
+            "GET",
+            `/api/tasks/${task.id}`,
+            undefined,
+            authHeaders
+          )
+        ).body,
+      (value) =>
+        value.status === "in_review" &&
+        value.comments.some(
+          (comment: { body: string }) =>
+            comment.body === "Implemented the first Claude task pass."
+        ) &&
+        value.recentRuns.length >= 2,
+      5000
+    );
+
+    const runs = await currentContext.services.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.taskId, task.id))
+      .orderBy(taskRuns.createdAt)
+      .all();
+
+    expect(completedTask.status).toBe("in_review");
+    expect(runs).toHaveLength(2);
+    expect(runs[0].status).toBe("failed");
+    expect(runs[0].failureReason).toBe(
+      "Claude reached the maximum number of turns before completing the task."
+    );
+    expect(runs[1].status).toBe("completed");
+    expect(runs[0].runtimeSessionKey).toBe(
+      "22222222-2222-4222-8222-222222222222"
+    );
+    expect(runs[1].runtimeSessionKey).toBe(
+      "22222222-2222-4222-8222-222222222222"
+    );
+  });
+
+  it("runs a Codex-backed task and reuses the same Codex thread for a follow-up attempt", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-codex-run-"));
+    const codexStateDir = join(appDataDir, "codex-home");
+    const codexConfigPath = join(codexStateDir, "config.toml");
+    await mkdir(codexStateDir, { recursive: true });
+    await writeFile(codexConfigPath, 'model = "gpt-5.4"\n', "utf8");
+    await writeFile(
+      join(codexStateDir, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: "test-access",
+        },
+      }),
+      "utf8"
+    );
+    const codexBinaryPath = await createMockCodexCli(appDataDir);
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CODEX_BINARY_PATH: codexBinaryPath,
+        CODEX_STATE_DIR: codexStateDir,
+        CODEX_CONFIG_PATH: codexConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Codex Operator",
+      email: "codex-run@example.com",
+    });
+
+    const { body: project } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/projects",
+      {
+        name: "Codex Project",
+        description: "Checks Codex execution continuity.",
+        projectRoot: "projects/codex-project",
+        seedType: "none",
+      },
+      authHeaders
+    );
+
+    const { body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Codex Runner",
+        role: "Implementation",
+        systemInstructions: "Implement changes directly.",
+        runtime: {
+          kind: "codex",
+          defaultModelId: "gpt-5.4",
+          sandboxMode: "off",
+          defaultThinkingLevel: "medium",
+        },
+      },
+      authHeaders
+    );
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`,
+      undefined,
+      authHeaders
+    );
+
+    const { body: task } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/tasks",
+      {
+        projectId: project.id,
+        title: "Build the landing page",
+        description: "Create the first Codex-backed implementation.",
+        assignedAgentId: agent.id,
+      },
+      authHeaders
+    );
+
+    const startResult = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`,
+      undefined,
+      authHeaders
+    );
+    expect(startResult.response.statusCode).toBe(200);
+
+    const firstCompletedTask = await waitFor(
+      async () =>
+        (
+          await requestJson(
+            currentContext!,
+            "GET",
+            `/api/tasks/${task.id}`,
+            undefined,
+            authHeaders
+          )
+        ).body,
+      (value) =>
+        value.status === "in_review" &&
+        value.comments.some(
+          (comment: { body: string }) =>
+            comment.body === "Implemented the first Codex task pass."
+        ),
+      4_000
+    );
+
+    expect(firstCompletedTask.currentRun).toBeNull();
+    expect(
+      firstCompletedTask.comments.some(
+        (comment: { body: string }) =>
+          comment.body === "I'll inspect the landing page files before making changes."
+      )
+    ).toBe(false);
+
+    const firstRunRows = await currentContext.services.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.taskId, task.id))
+      .all();
+
+    expect(firstRunRows).toHaveLength(1);
+    expect(firstRunRows[0].runtimeKind).toBe("codex");
+    expect(firstRunRows[0].runtimeSessionKey).toBe(
+      "11111111-1111-4111-8111-111111111111"
+    );
+
+    const commentResult = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/comments`,
+      {
+        body: `@${agent.slug} Please add fast delivery to the landing page copy.`,
+      },
+      authHeaders
+    );
+    expect(commentResult.response.statusCode).toBe(200);
+
+    const secondCompletedTask = await waitFor(
+      async () =>
+        (
+          await requestJson(
+            currentContext!,
+            "GET",
+            `/api/tasks/${task.id}`,
+            undefined,
+            authHeaders
+          )
+        ).body,
+      (value) =>
+        value.comments.some(
+          (comment: { body: string }) =>
+            comment.body === "Updated the landing page copy to mention fast delivery."
+        ) &&
+        value.recentRuns.length >= 2,
+      4_000
+    );
+
+    const secondRunRows = await currentContext.services.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.taskId, task.id))
+      .all();
+
+    expect(secondCompletedTask.status).toBe("in_review");
+    expect(
+      secondCompletedTask.comments.some(
+        (comment: { body: string }) =>
+          comment.body === "I'll inspect the copy before making the requested revision."
+      )
+    ).toBe(false);
+    expect(secondRunRows).toHaveLength(2);
+    expect(secondRunRows[0].runtimeSessionKey).toBe(
+      "11111111-1111-4111-8111-111111111111"
+    );
+    expect(secondRunRows[1].runtimeSessionKey).toBe(
+      "11111111-1111-4111-8111-111111111111"
+    );
   });
 
   it("protects application routes in non-test mode and records the signed-in operator name on tasks and comments", async () => {
@@ -486,6 +1871,13 @@ describe("server integration", () => {
     expect(taskFile).toContain("Implement the monitor endpoints");
     expect(taskFile).toContain("projects/nova/server");
     expect(taskFile).toContain("- brief.txt");
+    const agentContextFile = await readFile(
+      join(agent.agentHomePath, ".apm", "runs", run.id, "AGENT_CONTEXT.md"),
+      "utf8"
+    );
+    expect(agentContextFile).toContain("# Agent Context");
+    expect(agentContextFile).toContain("## Directive / AGENTS.md");
+    expect(agentContextFile).toContain("## Tools / TOOLS.md");
     const runtimeConfig = JSON.parse(
       await readFile(join(agent.agentHomePath, ".apm", "runs", run.id, "NOVA_RUNTIME.json"), "utf8")
     ) as {
@@ -570,6 +1962,264 @@ describe("server integration", () => {
     );
   });
 
+  it("accepts supported task attachments and rejects unsupported file types", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Attachment Policy Project",
+      projectRoot: "projects/attachments",
+    });
+    const { body: agent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Attachment Agent",
+      role: "Docs Reviewer",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Review attachments",
+      assignedAgentId: agent.id,
+    });
+
+    const pdfUpload = buildMultipartBody(
+      "brief.pdf",
+      "%PDF-1.7 test pdf",
+      "application/pdf"
+    );
+    const pdfResponse = await currentContext.app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/attachments`,
+      headers: pdfUpload.headers,
+      payload: pdfUpload.payload,
+    });
+    expect(pdfResponse.statusCode).toBe(200);
+
+    const videoUpload = buildMultipartBody(
+      "demo.mp4",
+      "not a real video",
+      "video/mp4"
+    );
+    const videoResponse = await currentContext.app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/attachments`,
+      headers: videoUpload.headers,
+      payload: videoUpload.payload,
+    });
+    expect(videoResponse.statusCode).toBe(400);
+    expect(readErrorMessage(videoResponse)).toContain("Unsupported attachment type");
+  });
+
+  it("supports comment attachments and stages them into the run inputs", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Comment Attachment Project",
+      projectRoot: "projects/comment-attachments",
+    });
+    const { body: agent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Comment Attachment Agent",
+      role: "Reviewer",
+      systemInstructions: "Use comment attachments as context when they are provided.",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Review screenshot feedback",
+      assignedAgentId: agent.id,
+    });
+
+    const uploadRequest = buildMultipartFormBody({
+      fields: {
+        body: "Please use the attached screenshot as context.",
+      },
+      files: [
+        {
+          fileName: "context.png",
+          content: "fake-image-content",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    const commentResponse = await currentContext.app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/comments`,
+      headers: uploadRequest.headers,
+      payload: uploadRequest.payload,
+    });
+
+    expect(commentResponse.statusCode).toBe(200);
+    const comment = commentResponse.json() as {
+      id: string;
+      body: string;
+      attachments: Array<{
+        id: string;
+        fileName: string;
+        mimeType: string;
+        sizeBytes: number;
+      }>;
+    };
+    expect(comment.body).toContain("attached screenshot");
+    expect(comment.attachments).toHaveLength(1);
+    expect(comment.attachments[0].fileName).toBe("context.png");
+    expect(comment.attachments[0].mimeType).toBe("image/png");
+
+    const contentResponse = await currentContext.app.inject({
+      method: "GET",
+      url: `/api/tasks/${task.id}/comments/${comment.id}/attachments/${comment.attachments[0].id}/content`,
+    });
+    expect(contentResponse.statusCode).toBe(200);
+    expect(contentResponse.headers["content-type"]).toContain("image/png");
+    expect(contentResponse.body).toBe("fake-image-content");
+
+    const { body: taskState } = await requestJson(
+      currentContext,
+      "GET",
+      `/api/tasks/${task.id}`
+    );
+    expect(taskState.comments).toHaveLength(1);
+    expect(taskState.comments[0].attachments).toHaveLength(1);
+    expect(taskState.comments[0].attachments[0].fileName).toBe("context.png");
+
+    const { body: run } = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+
+    const stagedCommentAttachmentPath = join(
+      agent.agentHomePath,
+      ".apm",
+      "runs",
+      run.id,
+      "inputs",
+      "comments",
+      comment.id,
+      "context.png"
+    );
+    expect(await readFile(stagedCommentAttachmentPath, "utf8")).toBe(
+      "fake-image-content"
+    );
+
+    const taskFile = await readFile(
+      join(agent.agentHomePath, ".apm", "runs", run.id, "TASK.md"),
+      "utf8"
+    );
+    expect(taskFile).toContain("Recent operator follow-up comments:");
+    expect(taskFile).toContain("Attachments:");
+    expect(taskFile).toContain("context.png (image/png)");
+    expect(taskFile).toContain(stagedCommentAttachmentPath);
+  });
+
+  it("creates and reuses one task branch per git-backed task", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Branch Project",
+      description: "Ensures task branches are stable across follow-ups.",
+      projectRoot: "projects/branch-project",
+      seedType: "none",
+    });
+    const { body: agent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Branch Agent",
+      role: "Implementation",
+      systemInstructions: "Follow TASK.md and stay on the provided branch.",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`
+    );
+
+    await currentContext.services.runtimeManager
+      .getAdapter(agent.runtime.kind)
+      .ensureProjectRoot(agent.id, agent.runtime.workspacePath, project.projectRoot, {
+        type: project.seedType,
+        url: project.seedUrl,
+      });
+
+    const repoPath = join(agent.runtime.workspacePath, project.projectRoot);
+    await initGitRepo(repoPath, "git@github.com:openai/orbit-shop.git");
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Design a landing page",
+      description: "Implement the first marketing page.",
+      assignedAgentId: agent.id,
+      executionTargetOverride: project.projectRoot,
+    });
+
+    const { body: firstRun } = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+
+    const firstTaskState = await waitFor(
+      async () =>
+        (await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)).body,
+      (value) =>
+        typeof value.gitBranchName === "string" &&
+        value.gitBranchName.length > 0 &&
+        typeof value.gitBranchUrl === "string" &&
+        value.gitBranchUrl.includes("/tree/") &&
+        value.status === "in_review",
+      4_000
+    );
+
+    expect(firstTaskState.gitBranchName).toContain("nova/task-001-design-a-landing-page");
+    expect(firstTaskState.gitRepoRoot).toBe(repoPath);
+    expect(firstTaskState.gitBranchUrl).toContain(
+      `https://github.com/openai/orbit-shop/tree/${firstTaskState.gitBranchName}`
+    );
+    expect((await runGit(repoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
+      firstTaskState.gitBranchName
+    );
+
+    const firstTaskFile = await readFile(
+      join(agent.agentHomePath, ".apm", "runs", firstRun.id, "TASK.md"),
+      "utf8"
+    );
+    expect(firstTaskFile).toContain(`Branch: ${firstTaskState.gitBranchName}`);
+    expect(firstTaskFile).toContain(
+      "operator wants you to open a pull request from that branch"
+    );
+
+    const { body: secondRun } = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+
+    const secondTaskFile = await readFile(
+      join(agent.agentHomePath, ".apm", "runs", secondRun.id, "TASK.md"),
+      "utf8"
+    );
+
+    expect(secondTaskFile).toContain(`Branch: ${firstTaskState.gitBranchName}`);
+    expect((await runGit(repoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
+      firstTaskState.gitBranchName
+    );
+  });
+
   it("forwards active task comments into the runtime session and accepts agent bridge updates", async () => {
     const setup = await createTestContext();
     currentContext = setup.context;
@@ -620,32 +2270,49 @@ describe("server integration", () => {
       "POST",
       `/api/tasks/${task.id}/comments`,
       {
-        body: "Please post a checkpoint after you inspect the target.",
+        body: "@bridge-agent Please post a checkpoint after you inspect the target.",
       }
     );
     expect(commentResponse.statusCode).toBe(200);
 
+    const runRow = await currentContext.services.db
+      .select()
+      .from(taskRuns)
+      .where(eq(taskRuns.id, run.id))
+      .get();
+    expect(runRow).toBeTruthy();
+
     const mirroredTask = await waitFor(
       async () => {
-        const result = await requestJson(
-          currentContext,
-          "GET",
-          `/api/tasks/${task.id}`
-        );
-        return result.body;
+        const [taskResult, sessionHistory] = await Promise.all([
+          requestJson(currentContext, "GET", `/api/tasks/${task.id}`),
+          currentContext!.services.runtimeManager
+            .getAdapter(runRow!.runtimeKind)
+            .loadSessionHistory(runRow!.runtimeSessionKey),
+        ]);
+
+        return {
+          task: taskResult.body,
+          sessionHistory,
+        };
       },
       (value) =>
-        value.comments.some(
+        value.task.comments.some(
           (comment: { source: string; body: string }) =>
-            comment.source === "agent_mirror" &&
-            comment.body.includes("Please post a checkpoint")
+            comment.source === "ticket_user" &&
+            comment.body.includes("@bridge-agent Please post a checkpoint")
+        ) &&
+        value.sessionHistory.some(
+          (message) =>
+            message.role === "user" &&
+            message.text.includes("@bridge-agent Please post a checkpoint")
         )
     );
     expect(
-      mirroredTask.comments.some(
+      mirroredTask.task.comments.some(
         (comment: { source: string; body: string }) =>
           comment.source === "ticket_user" &&
-          comment.body.includes("Please post a checkpoint")
+          comment.body.includes("@bridge-agent Please post a checkpoint")
       )
     ).toBe(true);
 
@@ -852,7 +2519,7 @@ describe("server integration", () => {
       "POST",
       `/api/tasks/${task.id}/comments`,
       {
-        body: "Use #4F46E5 for the title color.",
+        body: "@needs-input-agent Use #4F46E5 for the title color.",
       }
     );
     expect(operatorCommentResponse.statusCode).toBe(200);
@@ -869,6 +2536,164 @@ describe("server integration", () => {
       (value) => value.status === "in_review" && value.recentRuns.length >= 2
     );
     expect(resumedTask.comments.some((comment: { body: string }) => comment.body.includes("#4F46E5"))).toBe(true);
+  });
+
+  it("keeps plain comments passive and reroutes work only when another agent is mentioned", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+    const adapter = currentContext.services.runtimeManager.getAdapter("openclaw-native") as {
+      startRun: (input: Record<string, unknown>) => Promise<unknown>;
+    };
+    const originalStartRun = adapter.startRun.bind(adapter);
+    let observedThinkingLevel: string | null = null;
+    adapter.startRun = async (input) => {
+      observedThinkingLevel =
+        typeof input.thinkingLevel === "string" ? input.thinkingLevel : null;
+      return originalStartRun(input);
+    };
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Mention Routing Project",
+      projectRoot: "projects/mention-routing",
+    });
+    const { body: primaryAgent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Primary Agent",
+      role: "Execution",
+    });
+    const { body: secondaryAgent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Secondary Agent",
+      role: "Execution",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${primaryAgent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Mention routing ticket",
+      assignedAgentId: primaryAgent.id,
+    });
+
+    const plainCommentResponse = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/comments`,
+      {
+        body: "Just noting this for later review.",
+      }
+    );
+    expect(plainCommentResponse.response.statusCode).toBe(200);
+
+    await wait(100);
+
+    const passiveTask = (
+      await requestJson(currentContext, "GET", `/api/tasks/${task.id}`)
+    ).body;
+    expect(passiveTask.currentRun).toBeNull();
+    expect(passiveTask.recentRuns).toHaveLength(0);
+    expect(passiveTask.assignedAgentId).toBe(primaryAgent.id);
+
+    const mentionedCommentResponse = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/comments`,
+      {
+        body: "@secondary-agent Please pick this up and handle the next pass.",
+        thinkingLevel: "low",
+      }
+    );
+    expect(mentionedCommentResponse.response.statusCode).toBe(200);
+
+    const reroutedTask = await waitFor(
+      async () =>
+        (
+          await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)
+        ).body,
+      (value) =>
+        value.assignedAgentId === secondaryAgent.id &&
+        value.status === "in_review" &&
+        value.recentRuns.length >= 1
+    );
+    expect(reroutedTask.assignedAgentId).toBe(secondaryAgent.id);
+    expect(observedThinkingLevel).toBe("low");
+
+    const reroutedProject = (
+      await requestJson(currentContext, "GET", `/api/projects/${project.id}`)
+    ).body;
+    expect(reroutedProject.assignedAgentIds).toContain(secondaryAgent.id);
+  });
+
+  it("forwards comment-specific thinking level into an active runtime session", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+    const adapter = currentContext.services.runtimeManager.getAdapter("openclaw-native") as {
+      sendRunInput: (
+        runtimeSessionKey: string,
+        input: Record<string, unknown>
+      ) => Promise<unknown>;
+    };
+    const originalSendRunInput = adapter.sendRunInput.bind(adapter);
+    let observedThinkingLevel: string | null = null;
+    adapter.sendRunInput = async (runtimeSessionKey, input) => {
+      observedThinkingLevel =
+        typeof input.thinkingLevel === "string" ? input.thinkingLevel : null;
+      return originalSendRunInput(runtimeSessionKey, input);
+    };
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Comment Thinking Project",
+      projectRoot: "projects/comment-thinking",
+    });
+    const { body: agent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Comment Thinking Agent",
+      role: "Execution",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Comment thinking ticket",
+      assignedAgentId: agent.id,
+    });
+
+    const { body: run } = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+
+    const activeTask = await waitFor(
+      async () => (await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)).body,
+      (value) => value.currentRun?.id === run.id
+    );
+    expect(activeTask.currentRun.id).toBe(run.id);
+
+    const commentResponse = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/comments`,
+      {
+        body: `@${agent.slug} Please do a lighter follow-up pass.`,
+        thinkingLevel: "minimal",
+      }
+    );
+    expect(commentResponse.response.statusCode).toBe(200);
+
+    await waitFor(
+      async () => observedThinkingLevel,
+      (value) => value === "minimal"
+    );
+    expect(observedThinkingLevel).toBe("minimal");
   });
 
   it("supports absolute project roots selected from the host filesystem", async () => {
@@ -1487,7 +3312,7 @@ describe("server integration", () => {
     );
 
     await requestJson(currentContext, "POST", `/api/tasks/${task.id}/comments`, {
-      body: "Reduce the hero font size and tighten the spacing.",
+      body: "@follow-up-agent Reduce the hero font size and tighten the spacing.",
     });
 
     const resumedTask = await waitFor(
@@ -1505,7 +3330,9 @@ describe("server integration", () => {
     );
 
     expect(stagedTaskFile).toContain("Recent operator follow-up comments:");
-    expect(stagedTaskFile).toContain("Reduce the hero font size and tighten the spacing.");
+    expect(stagedTaskFile).toContain(
+      "@follow-up-agent Reduce the hero font size and tighten the spacing."
+    );
     expect(stagedTaskFile).toContain(
       "Treat the newest operator comment as the current revision request."
     );
@@ -1644,5 +3471,102 @@ describe("server integration", () => {
           item.actionLabel === "Open Agent"
       )
     ).toBe(true);
+  });
+
+  it("clears a failed dashboard attention item after a later successful run", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Dashboard Resolution",
+      projectRoot: "projects/dashboard-resolution",
+    });
+    const { body: agent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Resolution Agent",
+      role: "Execution",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${agent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Resolve homepage attention item",
+      assignedAgentId: agent.id,
+    });
+
+    const failedAt = "2026-04-03T10:00:00.000Z";
+    const completedAt = "2026-04-03T10:05:00.000Z";
+
+    await currentContext.services.db
+      .insert(taskRuns)
+      .values([
+        {
+          id: randomUUID(),
+          taskId: task.id,
+          attemptNumber: 1,
+          agentId: agent.id,
+          runtimeKind: "openclaw-native",
+          runtimeSessionKey: "attention-session-1",
+          runtimeRunId: null,
+          status: "failed",
+          startedAt: failedAt,
+          endedAt: failedAt,
+          failureReason: "Initial execution failed.",
+          finalSummary: null,
+          usageJson: null,
+          createdAt: failedAt,
+          updatedAt: failedAt,
+        },
+        {
+          id: randomUUID(),
+          taskId: task.id,
+          attemptNumber: 2,
+          agentId: agent.id,
+          runtimeKind: "openclaw-native",
+          runtimeSessionKey: "attention-session-2",
+          runtimeRunId: null,
+          status: "completed",
+          startedAt: completedAt,
+          endedAt: completedAt,
+          failureReason: null,
+          finalSummary: "Resolved successfully.",
+          usageJson: null,
+          createdAt: completedAt,
+          updatedAt: completedAt,
+        },
+      ])
+      .run();
+
+    await currentContext.services.db
+      .update(tasks)
+      .set({
+        status: "in_review",
+        updatedAt: completedAt,
+      })
+      .where(eq(tasks.id, task.id))
+      .run();
+
+    const { response, body } = await requestJson(
+      currentContext,
+      "GET",
+      "/api/dashboard/attention"
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      body.some(
+        (item: {
+          kind: string;
+          href: string | null;
+        }) =>
+          item.kind === "failed_run" &&
+          item.href === `/projects/${project.id}/board/${task.id}`
+      )
+    ).toBe(false);
   });
 });

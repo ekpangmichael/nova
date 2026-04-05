@@ -67,10 +67,7 @@ function buildNotificationCopy(run: RunNotificationPayload) {
 
 function buildCommentNotificationCopy(task: TaskNotificationPayload, comment: ApiTaskComment) {
   const taskTitle = task.title?.trim() || "Task";
-  const authorLabel =
-    comment.authorType === "agent"
-      ? task.assignedAgent?.name?.trim() || "Agent"
-      : "Nova";
+  const authorLabel = comment.authorLabel?.trim() || "Nova";
 
   return {
     title: `${authorLabel} replied on ${taskTitle}`,

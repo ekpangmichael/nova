@@ -85,6 +85,132 @@ export const WEBSOCKET_EVENT_TYPES = [
   "agent.updated",
   "runtime.health",
 ] as const;
+export const MAX_TASK_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+export const TASK_ATTACHMENT_ALLOWED_EXTENSIONS = [
+  "pdf",
+  "json",
+  "jsonc",
+  "md",
+  "markdown",
+  "txt",
+  "text",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "less",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "py",
+  "rb",
+  "php",
+  "java",
+  "c",
+  "cc",
+  "cpp",
+  "cxx",
+  "h",
+  "hpp",
+  "go",
+  "rs",
+  "swift",
+  "kt",
+  "kts",
+  "sh",
+  "bash",
+  "zsh",
+  "yaml",
+  "yml",
+  "xml",
+  "csv",
+  "sql",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "log",
+  "doc",
+  "docx",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+] as const;
+
+export const TASK_ATTACHMENT_ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "text/plain",
+  "text/markdown",
+  "text/html",
+  "text/css",
+  "text/javascript",
+  "application/javascript",
+  "application/x-javascript",
+  "text/x-python",
+  "application/x-python-code",
+  "text/x-java-source",
+  "text/x-c",
+  "text/x-c++",
+  "text/x-go",
+  "text/x-rustsrc",
+  "text/x-swift",
+  "text/x-kotlin",
+  "text/x-script.python",
+  "text/yaml",
+  "application/yaml",
+  "text/xml",
+  "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+] as const;
+
+export const TASK_ATTACHMENT_ACCEPT_ATTR = TASK_ATTACHMENT_ALLOWED_EXTENSIONS.map(
+  (extension) => `.${extension}`
+).join(",");
+
+const TASK_ATTACHMENT_EXTENSION_SET = new Set<string>(
+  TASK_ATTACHMENT_ALLOWED_EXTENSIONS
+);
+const TASK_ATTACHMENT_MIME_SET = new Set<string>(TASK_ATTACHMENT_ALLOWED_MIME_TYPES);
+
+export const getTaskAttachmentExtension = (fileName: string) => {
+  const normalized = fileName.trim().toLowerCase();
+  const lastDot = normalized.lastIndexOf(".");
+
+  if (lastDot <= 0 || lastDot === normalized.length - 1) {
+    return "";
+  }
+
+  return normalized.slice(lastDot + 1);
+};
+
+export const isAllowedTaskAttachment = (input: {
+  fileName: string;
+  mimeType?: string | null;
+}) => {
+  const extension = getTaskAttachmentExtension(input.fileName);
+  const normalizedMime = (input.mimeType ?? "").trim().toLowerCase();
+
+  if (extension && TASK_ATTACHMENT_EXTENSION_SET.has(extension)) {
+    return true;
+  }
+
+  return normalizedMime ? TASK_ATTACHMENT_MIME_SET.has(normalizedMime) : false;
+};
 
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
@@ -110,6 +236,14 @@ export type SettingsRecord = {
   mode: "local";
   openclawProfile: string;
   openclawBinaryPath: string;
+  codexBinaryPath: string;
+  codexConfigPath: string;
+  codexStateDir: string;
+  codexDefaultModel: string | null;
+  claudeBinaryPath: string;
+  claudeConfigPath: string;
+  claudeStateDir: string;
+  claudeDefaultModel: string | null;
   gatewayUrl: string | null;
   gatewayAuthMode: string;
   gatewayTokenEncrypted: string | null;
@@ -172,6 +306,9 @@ export type TaskRecord = {
   assignedAgentId: string;
   executionTargetOverride: string | null;
   resolvedExecutionTarget: string;
+  gitRepoRoot: string | null;
+  gitBranchName: string | null;
+  gitBranchUrl: string | null;
   dueAt: string | null;
   estimatedMinutes: number | null;
   labels: string[];
@@ -186,15 +323,29 @@ export type TaskCommentRecord = {
   taskRunId: string | null;
   authorType: CommentAuthorType;
   authorId: string | null;
+  authorLabel: string | null;
   source: TaskCommentSource;
   externalMessageId: string | null;
   body: string;
+  attachments: TaskCommentAttachmentRecord[];
   createdAt: string;
 };
 
 export type TaskAttachmentRecord = {
   id: string;
   taskId: string;
+  fileName: string;
+  mimeType: string;
+  relativeStoragePath: string;
+  sha256: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+export type TaskCommentAttachmentRecord = {
+  id: string;
+  taskId: string;
+  taskCommentId: string;
   fileName: string;
   mimeType: string;
   relativeStoragePath: string;
@@ -254,7 +405,7 @@ export type ProjectActivityItem = {
 
 export type RuntimeHealth = {
   status: RuntimeHealthState;
-  mode: "mock" | "openclaw";
+  mode: "mock" | "openclaw" | "codex" | "claude";
   profile: string;
   gatewayUrl: string | null;
   binaryPath: string;

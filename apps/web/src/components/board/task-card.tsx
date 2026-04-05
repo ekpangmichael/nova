@@ -49,7 +49,7 @@ export function TaskCard({
   if (isDone) {
     return (
       <div
-        className={`bg-surface-container p-4 rounded-sm border-l-2 border-outline-variant/30 grayscale ${href ? "cursor-pointer hover:bg-surface-container-high transition-all" : ""}`}
+        className={`bg-surface-container p-4 rounded-lg border-l-2 border-outline-variant/30 grayscale ${href ? "cursor-pointer hover:bg-surface-container-high transition-all" : ""}`}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
       >
@@ -70,7 +70,7 @@ export function TaskCard({
 
   return (
     <div
-      className={`group ${isInProgress ? "bg-surface-container-lowest ghost" : "bg-surface-container"} p-4 rounded-sm border-l-2 ${borderMap[accentColor]} hover:bg-surface-container-high transition-all cursor-pointer`}
+      className={`group ${isInProgress ? "bg-surface-container-lowest ghost" : "bg-surface-container"} p-4 rounded-lg border-l-2 ${borderMap[accentColor]} hover:bg-surface-container-high transition-all cursor-pointer`}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
     >
@@ -121,8 +121,8 @@ export function TaskCard({
         <div className="flex items-center gap-2">
           {task.assignedAgent && (
             <div className="flex items-center gap-1.5">
-              <div className="w-5 h-5 rounded-full bg-tertiary-container/30 flex items-center justify-center">
-                <Icon name="smart_toy" size={12} filled className="text-on-tertiary" />
+              <div className="w-4 h-4 rounded-full bg-tertiary/15 flex items-center justify-center">
+                <Icon name="smart_toy" size={10} filled className="text-tertiary/60" />
               </div>
               {isInProgress && (
                 <span className="text-[10px] font-mono text-on-surface-variant">

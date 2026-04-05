@@ -122,7 +122,7 @@ export default function SignInPage() {
           Nova
         </h1>
         <p className="mt-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-on-surface-variant/50">
-          Protocol // Auth Gateway
+          Agent Management Platform
         </p>
       </div>
 
@@ -137,11 +137,11 @@ export default function SignInPage() {
           <div className="flex items-center gap-2">
             <div className="h-1.5 w-1.5 rounded-full bg-tertiary shadow-[0_0_8px_rgba(209,255,215,0.4)]" />
             <span className="font-mono text-[10px] tracking-wide text-tertiary/70">
-              SECURE_CHANNEL
+              Connected
             </span>
           </div>
           <span className="font-mono text-[10px] tracking-wide text-on-surface-variant/30">
-            NODE: AUTH.01
+            Nova v1.0
           </span>
         </div>
 
@@ -210,7 +210,7 @@ export default function SignInPage() {
             {isSignUp && (
               <div className="space-y-1.5 anim-1">
                 <label className="ml-1 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/40">
-                  Operator Name
+                  Full Name
                 </label>
                 <input
                   type="text"
@@ -225,14 +225,14 @@ export default function SignInPage() {
 
             <div className="space-y-1.5">
               <label className="ml-1 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/40">
-                {isSignUp ? "Email Address" : "Identity Vector"}
+                Email Address
               </label>
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className="w-full rounded-sm border border-outline-variant/15 bg-surface-container-lowest/80 px-4 py-3 font-mono text-sm text-on-surface outline-none transition-all placeholder:text-on-surface-variant/20 focus:border-secondary/40 focus:ring-1 focus:ring-secondary/40"
-                placeholder="operator@protocol.internal"
+                placeholder="you@company.com"
                 autoComplete="email"
               />
             </div>
@@ -240,7 +240,7 @@ export default function SignInPage() {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between px-1">
                 <label className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/40">
-                  {isSignUp ? "Password" : "Access Cipher"}
+                  Password
                 </label>
                 {!isSignUp && (
                   <span className="font-mono text-[10px] text-on-surface-variant/20">
@@ -320,7 +320,7 @@ export default function SignInPage() {
         <p className="font-mono text-[11px] tracking-tight text-on-surface-variant/35">
           {isSignUp ? (
             <>
-              Already have access?{" "}
+              Already have an account?{" "}
               <button
                 type="button"
                 onClick={() => switchMode("signin")}
@@ -331,7 +331,7 @@ export default function SignInPage() {
             </>
           ) : (
             <>
-              No access yet?{" "}
+              Don&apos;t have an account?{" "}
               <button
                 type="button"
                 onClick={() => switchMode("signup")}

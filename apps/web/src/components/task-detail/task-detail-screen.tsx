@@ -11,8 +11,14 @@ import { TaskExecutionLog } from "@/components/task-detail/task-execution-log";
 import { TaskHeader } from "@/components/task-detail/task-header";
 import { TaskMetadata } from "@/components/task-detail/task-metadata";
 import {
+  buildEventLog,
+  formatRuntimeLabel,
+} from "@/components/task-detail/task-run-events";
+import {
   ApiError,
+  type ApiAgent,
   type ApiRunEvent,
+  getTaskCommentAttachmentContentUrl,
   type ApiTaskComment,
   type ApiTaskDetail,
   type ApiTaskRun,
@@ -22,6 +28,13 @@ import {
   startTask,
   stopTask,
 } from "@/lib/api";
+import {
+  DEFAULT_DISPLAY_PREFERENCES,
+  formatAbsoluteTimestamp,
+  formatTimestampForDisplay,
+  readDisplayPreferencesFromBrowser,
+  type DisplayPreferences,
+} from "@/lib/display-preferences";
 import type { ExecutionLogItem, TaskAttachment, TaskDetail } from "@/types";
 
 type CommentView = {
@@ -30,12 +43,22 @@ type CommentView = {
   isAI: boolean;
   timeLabel: string;
   message: string;
+  attachments: Array<{
+    id: string;
+    name: string;
+    size: string;
+    type: string;
+    icon: string;
+    isImage: boolean;
+    contentUrl: string;
+  }>;
 };
 
 type TaskDetailScreenProps = {
   projectId: string;
   initialTask: ApiTaskDetail;
   initialRunEvents: ApiRunEvent[];
+  allAgents: ApiAgent[];
 };
 
 type WebsocketEnvelope = {
@@ -104,7 +127,10 @@ function buildTaskAttachments(task: ApiTaskDetail): TaskAttachment[] {
   }));
 }
 
-function buildRunStatusLog(task: ApiTaskDetail): ExecutionLogItem[] {
+function buildRunStatusLog(
+  task: ApiTaskDetail,
+  preferences: DisplayPreferences
+): ExecutionLogItem[] {
   const runs = task.currentRun
     ? [task.currentRun, ...task.recentRuns.filter((run) => run.id !== task.currentRun?.id)]
     : task.recentRuns;
@@ -114,8 +140,8 @@ function buildRunStatusLog(task: ApiTaskDetail): ExecutionLogItem[] {
       {
         icon: "schedule",
         title: "No runs yet.",
-        description: "The task has been created and is waiting for execution.",
-        timeAgo: new Date(task.createdAt).toLocaleString(),
+        description: "This task is queued and waiting to be picked up by an agent.",
+        timeAgo: formatTimestampForDisplay(task.createdAt, preferences),
       },
     ];
   }
@@ -138,51 +164,8 @@ function buildRunStatusLog(task: ApiTaskDetail): ExecutionLogItem[] {
         : run.failureReason
           ? `Ended with ${run.status}: ${run.failureReason}`
           : `Run entered ${run.status.replace(/_/g, " ")} state.`,
-      timeAgo: new Date(run.updatedAt).toLocaleString(),
-    };
-  });
-}
-
-function buildEventLog(events: ApiRunEvent[]): ExecutionLogItem[] {
-  const visibleEvents = [...events].slice(-12).reverse();
-
-  return visibleEvents.map((event) => {
-    const payload = (event.payload ?? {}) as Record<string, unknown>;
-    const description =
-      typeof payload.message === "string"
-        ? payload.message
-        : typeof payload.delta === "string"
-          ? payload.delta
-          : typeof payload.reason === "string"
-            ? payload.reason
-            : typeof payload.finalSummary === "string"
-              ? payload.finalSummary
-              : typeof payload.toolName === "string"
-                ? payload.toolName
-                : typeof payload.path === "string"
-                  ? payload.path
-                  : "Runtime event received.";
-
-    const icon =
-      event.eventType === "run.completed"
-        ? "check_circle"
-        : event.eventType === "run.failed"
-          ? "error"
-          : event.eventType === "run.aborted"
-            ? "stop_circle"
-            : event.eventType.startsWith("tool.")
-              ? "build"
-              : event.eventType === "artifact.created"
-                ? "draft"
-                : event.eventType === "message.completed"
-                  ? "forum"
-                  : "play_circle";
-
-    return {
-      icon,
-      title: event.eventType.replace(/\./g, " "),
-      description,
-      timeAgo: new Date(event.createdAt).toLocaleString(),
+      timeAgo: formatTimestampForDisplay(run.updatedAt, preferences),
+      runtimeLabel: formatRuntimeLabel(run.runtimeKind) ?? undefined,
     };
   });
 }
@@ -196,7 +179,11 @@ function splitDescription(description: string) {
   return parts.length > 0 ? parts : ["No description provided."];
 }
 
-function buildTaskDetailView(task: ApiTaskDetail, runEvents: ApiRunEvent[]): TaskDetail {
+function buildTaskDetailView(
+  task: ApiTaskDetail,
+  runEvents: ApiRunEvent[],
+  preferences: DisplayPreferences
+): TaskDetail {
   const priority = formatPriority(task);
 
   return {
@@ -212,13 +199,35 @@ function buildTaskDetailView(task: ApiTaskDetail, runEvents: ApiRunEvent[]): Tas
       role: task.assignedAgent?.role ?? "No role",
     },
     workspace: task.resolvedExecutionTarget,
-    deadline: task.dueAt ? new Date(task.dueAt).toLocaleDateString() : "No deadline",
+    branch: task.gitBranchName
+      ? {
+          name: task.gitBranchName,
+          url: task.gitBranchUrl,
+        }
+      : null,
+    deadline: task.dueAt
+      ? formatAbsoluteTimestamp(task.dueAt, preferences, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "No deadline",
     attachments: buildTaskAttachments(task),
-    executionLog: runEvents.length > 0 ? buildEventLog(runEvents) : buildRunStatusLog(task),
+    executionLog:
+      runEvents.length > 0
+        ? buildEventLog(
+            runEvents,
+            preferences,
+            task.currentRun?.runtimeKind ?? task.recentRuns[0]?.runtimeKind
+          )
+        : buildRunStatusLog(task, preferences),
   };
 }
 
-function buildCommentView(task: ApiTaskDetail): CommentView[] {
+function buildCommentView(
+  task: ApiTaskDetail,
+  preferences: DisplayPreferences
+): CommentView[] {
   return [...task.comments]
     .sort(
       (left, right) =>
@@ -227,14 +236,24 @@ function buildCommentView(task: ApiTaskDetail): CommentView[] {
     .map((comment: ApiTaskComment) => ({
       id: comment.id,
       author:
-        comment.authorType === "agent"
-          ? task.assignedAgent?.name ?? "Agent"
-          : comment.authorType === "system"
-            ? "System"
-            : comment.authorId ?? "Operator",
+        comment.authorLabel ??
+        (comment.authorType === "system" ? "System" : "You"),
       isAI: comment.authorType === "agent",
-      timeLabel: new Date(comment.createdAt).toLocaleString(),
+      timeLabel: formatTimestampForDisplay(comment.createdAt, preferences),
       message: comment.body,
+      attachments: comment.attachments.map((attachment) => ({
+        id: attachment.id,
+        name: attachment.fileName,
+        size: formatFileSize(attachment.sizeBytes),
+        type: attachment.mimeType,
+        icon: getAttachmentIcon(attachment.mimeType),
+        isImage: attachment.mimeType.startsWith("image/"),
+        contentUrl: getTaskCommentAttachmentContentUrl(
+          task.id,
+          comment.id,
+          attachment.id
+        ),
+      })),
     }));
 }
 
@@ -242,17 +261,38 @@ export function TaskDetailScreen({
   projectId,
   initialTask,
   initialRunEvents,
+  allAgents,
 }: TaskDetailScreenProps) {
+  const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences>(
+    DEFAULT_DISPLAY_PREFERENCES
+  );
   const [task, setTask] = useState(initialTask);
   const [runEvents, setRunEvents] = useState(initialRunEvents);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [resumeWatchUntil, setResumeWatchUntil] = useState<number | null>(null);
+
+  useEffect(() => {
+    setDisplayPreferences(readDisplayPreferencesFromBrowser());
+  }, []);
 
   useEffect(() => {
     setTask(initialTask);
     setRunEvents(initialRunEvents);
   }, [initialTask, initialRunEvents]);
+
+  useEffect(() => {
+    void refreshTaskState().catch(() => {
+      // Keep the initial server snapshot as a fallback if the client-side refresh fails.
+    });
+  }, [task.id]);
+
+  useEffect(() => {
+    if (task.currentRun && resumeWatchUntil !== null) {
+      setResumeWatchUntil(null);
+    }
+  }, [task.currentRun, resumeWatchUntil]);
 
   async function refreshTaskState() {
     const nextTask = await getTask(task.id);
@@ -263,6 +303,22 @@ export function TaskDetailScreen({
     } else {
       setRunEvents([]);
     }
+  }
+
+  function safeRefreshTaskState() {
+    void refreshTaskState().catch(() => {
+      // Runtime execution should not surface a red dev overlay when a live refresh misses once.
+    });
+  }
+
+  function safeLoadRunEvents(runId: string) {
+    void getRunEvents(runId)
+      .then((events) => {
+        setRunEvents(events);
+      })
+      .catch(() => {
+        // A dropped live fetch should not interrupt the task page; polling will reconcile shortly.
+      });
   }
 
   async function handleStart() {
@@ -306,6 +362,14 @@ export function TaskDetailScreen({
     }
   }
 
+  async function handleCommentCreated() {
+    await refreshTaskState();
+
+    if (!task.currentRun) {
+      setResumeWatchUntil(Date.now() + 15_000);
+    }
+  }
+
   useEffect(() => {
     const backendWebsocketUrl = resolveBackendWebsocketUrl();
     const socket = new WebSocket(backendWebsocketUrl);
@@ -333,9 +397,7 @@ export function TaskDetailScreen({
           return;
         }
 
-        void getRunEvents(nextTask.currentRun.id).then((events) => {
-          setRunEvents(events);
-        });
+        safeLoadRunEvents(nextTask.currentRun.id);
         return;
       }
 
@@ -377,7 +439,7 @@ export function TaskDetailScreen({
         const payload = envelope.payload as { task?: { id?: string } };
 
         if (payload.task?.id === task.id) {
-          void refreshTaskState();
+          safeRefreshTaskState();
         }
       }
     };
@@ -428,90 +490,134 @@ export function TaskDetailScreen({
     };
   }, [task.id, task.currentRun?.id]);
 
-  const taskView = buildTaskDetailView(task, runEvents);
-  const comments = buildCommentView(task);
+  useEffect(() => {
+    if (resumeWatchUntil === null || task.currentRun) {
+      return;
+    }
+
+    let cancelled = false;
+    let refreshTimer: number | null = null;
+
+    const scheduleRefresh = () => {
+      if (cancelled) {
+        return;
+      }
+
+      refreshTimer = window.setTimeout(async () => {
+        if (cancelled) {
+          return;
+        }
+
+        if (Date.now() >= resumeWatchUntil) {
+          setResumeWatchUntil(null);
+          return;
+        }
+
+        if (document.visibilityState === "visible") {
+          try {
+            await refreshTaskState();
+          } catch {
+            // Keep watching briefly for a backend-started resume after a comment is posted.
+          }
+        }
+
+        scheduleRefresh();
+      }, 1500);
+    };
+
+    scheduleRefresh();
+
+    return () => {
+      cancelled = true;
+
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer);
+      }
+    };
+  }, [resumeWatchUntil, task.currentRun]);
+
+  const taskView = buildTaskDetailView(task, runEvents, displayPreferences);
+  const comments = buildCommentView(task, displayPreferences);
   const isRunActive = Boolean(task.currentRun);
   const idleActionLabel =
     task.status === "blocked" || task.status === "paused" ? "Resume" : "Start";
 
   return (
-    <>
-      <div className="mb-10 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link
-            href={`/projects/${projectId}/board`}
-            className="flex items-center gap-1 text-sm text-on-surface-variant transition-colors hover:text-on-surface"
-          >
-            <Icon name="arrow_back" size={16} />
-            Board
-          </Link>
-          <div className="h-4 w-px bg-outline-variant/30" />
-          <span className="border-secondary pb-1 text-sm font-semibold text-on-surface ghost-b">
-            Task Detail
-          </span>
-          <span className="text-sm text-on-surface-variant/40">{task.project.name}</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <TaskActionButtons
-            taskId={task.id}
-            taskTitle={task.title}
-            projectId={projectId}
-          />
-          {!isRunActive ? (
-            <button
-              type="button"
-              onClick={() => void handleStart()}
-              disabled={isStarting}
-              className="flex items-center gap-2 rounded-sm bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary transition-all hover:opacity-85 active:scale-[0.98] disabled:opacity-50"
-            >
-              <Icon name="play_arrow" size={18} />
-              {isStarting
-                ? idleActionLabel === "Resume"
-                  ? "Resuming..."
-                  : "Starting..."
-                : idleActionLabel}
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      {actionError ? (
-        <div className="mb-8 rounded-sm border border-error/30 bg-error/8 px-4 py-3 text-sm text-error">
-          {actionError}
-        </div>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-10 md:grid-cols-12">
-        <section className="space-y-8 md:col-span-8">
-          <TaskHeader task={taskView} />
-          <TaskDescription paragraphs={taskView.description} />
-          <TaskAttachments attachments={taskView.attachments} />
-          <CommentThread
-            taskId={task.id}
-            comments={comments}
-            onCommentCreated={refreshTaskState}
-            agentWorking={isRunActive}
-            onStopAgent={() => void handleStop()}
-            isStopping={isStopping}
-          />
-        </section>
-
-        <aside className="space-y-6 md:col-span-4">
-          <TaskMetadata task={taskView} />
-          <TaskExecutionLog log={taskView.executionLog} />
-
-          <div className="flex flex-col gap-3 pt-4">
+    <div className="h-full overflow-y-auto pr-2 scrollbar-thin">
+      <div className="mx-auto max-w-4xl pb-16">
+        {/* Nav */}
+        <div className="mb-8 flex items-center justify-between anim-1">
+          <div className="flex items-center gap-3">
             <Link
-              href={`/tasks/new?projectId=${task.project.id}`}
-              className="flex w-full items-center justify-center gap-2 rounded-sm px-4 py-3 text-xs font-medium text-on-surface-variant transition-all ghost hover:bg-surface-container-high hover:text-on-surface"
+              href={`/projects/${projectId}/board`}
+              className="flex items-center gap-1.5 text-[13px] text-on-surface-variant/40 transition-colors hover:text-on-surface-variant/70"
             >
-              <Icon name="add" size={16} />
-              Create Related Task
+              <Icon name="arrow_back" size={14} />
+              Board
             </Link>
+            <span className="text-outline-variant/15">|</span>
+            <span className="text-[13px] text-on-surface-variant/30">
+              {task.project.name}
+            </span>
           </div>
-        </aside>
+
+          <div className="flex items-center gap-2">
+            <TaskActionButtons
+              taskId={task.id}
+              taskTitle={task.title}
+              projectId={projectId}
+            />
+            {!isRunActive ? (
+              <button
+                type="button"
+                onClick={() => void handleStart()}
+                disabled={isStarting}
+                className="flex items-center gap-2 rounded-md bg-secondary/15 px-4 py-2.5 text-[12px] font-semibold text-secondary transition-colors hover:bg-secondary/20 disabled:opacity-50"
+              >
+                <Icon name="play_arrow" size={16} />
+                {isStarting
+                  ? idleActionLabel === "Resume"
+                    ? "Resuming..."
+                    : "Starting..."
+                  : idleActionLabel}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {actionError ? (
+          <div className="mb-6 rounded-lg border border-error/20 bg-error/5 px-4 py-3 text-[13px] text-error">
+            {actionError}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+          <section className="space-y-6 lg:col-span-3 anim-2">
+            <TaskHeader task={taskView} />
+            <TaskDescription paragraphs={taskView.description} />
+            <TaskAttachments attachments={taskView.attachments} />
+            <CommentThread
+              taskId={task.id}
+              comments={comments}
+              agents={allAgents}
+              assignedAgentId={task.assignedAgentId}
+              projectAgentIds={task.project.assignedAgentIds}
+              onCommentCreated={handleCommentCreated}
+              agentWorking={isRunActive}
+              onStopAgent={() => void handleStop()}
+              isStopping={isStopping}
+            />
+          </section>
+
+          <aside className="space-y-4 lg:col-span-2 anim-3">
+            <TaskMetadata task={taskView} />
+            <TaskExecutionLog
+              log={taskView.executionLog}
+              href={`/projects/${projectId}/board/${task.id}/log`}
+            />
+          </aside>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

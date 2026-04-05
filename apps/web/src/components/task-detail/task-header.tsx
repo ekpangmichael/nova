@@ -14,17 +14,17 @@ const statusDot: Record<TaskDetail["status"], string> = {
 
 export function TaskHeader({ task }: { task: TaskDetail }) {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <span className="px-2 py-0.5 rounded-sm text-[10px] font-mono tracking-wider bg-surface-container-high text-secondary ghost uppercase">
+    <div>
+      <div className="mb-2 flex items-center gap-2.5">
+        <span className="rounded-md bg-surface-container-high/50 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-secondary">
           {task.id}
         </span>
-        <span className={`w-1.5 h-1.5 rounded-full ${statusDot[task.status]}`} />
-        <span className="text-[11px] uppercase tracking-[0.15em] text-on-surface-variant font-medium">
+        <div className={`h-1.5 w-1.5 rounded-full ${statusDot[task.status]}`} />
+        <span className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/50">
           {task.statusLabel}
         </span>
       </div>
-      <h2 className="text-2xl font-extrabold text-on-surface tracking-tight leading-snug">
+      <h2 className="text-xl font-bold tracking-[-0.02em] text-on-surface">
         {task.title}
       </h2>
     </div>

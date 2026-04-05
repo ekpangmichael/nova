@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -11,8 +12,35 @@ const packagesDir = resolve(repoRoot, "packages");
 const webLockPath = resolve(webDir, ".next/dev/lock");
 const desiredWebPort = 3000;
 const desiredServerPort = 4010;
-const desiredBackendUrl = `http://127.0.0.1:${desiredServerPort}/api`;
 const pnpmBin = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const isLanMode =
+  process.env.NOVA_DEV_LAN === "1" || process.env.NOVA_DEV_LAN === "true";
+
+const detectLanIp = () => {
+  const interfaces = networkInterfaces();
+
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries ?? []) {
+      if (
+        entry &&
+        entry.family === "IPv4" &&
+        !entry.internal &&
+        !entry.address.startsWith("169.254.")
+      ) {
+        return entry.address;
+      }
+    }
+  }
+
+  return null;
+};
+
+const lanIp = process.env.NOVA_DEV_LAN_IP || detectLanIp();
+const webHostname = isLanMode ? "0.0.0.0" : "127.0.0.1";
+const backendHost = isLanMode ? "0.0.0.0" : process.env.HOST ?? "0.0.0.0";
+const webOriginHost = isLanMode ? lanIp : "127.0.0.1";
+const desiredBackendUrl = `http://127.0.0.1:${desiredServerPort}/api`;
+const desiredWebOrigin = `http://${webOriginHost}:${desiredWebPort}`;
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
@@ -131,7 +159,8 @@ const isWorkspaceServerProcess = (command) =>
 const isWorkspaceWebProcess = (command) =>
   command.includes(repoRoot) &&
   (command.includes("@nova/web exec next dev") ||
-    command.includes("next dev --hostname 127.0.0.1 --port 3000"));
+    command.includes("next dev --hostname 127.0.0.1 --port 3000") ||
+    command.includes("next dev --hostname 0.0.0.0 --port 3000"));
 
 const readJsonIfPresent = async (path) => {
   try {
@@ -409,6 +438,12 @@ const main = async () => {
   const dotEnv = await loadDotEnvFiles();
   Object.assign(process.env, dotEnv, process.env);
 
+  if (isLanMode && !lanIp) {
+    throw new Error(
+      "Unable to detect a LAN IPv4 address. Set NOVA_DEV_LAN_IP=<your-local-ip> and retry."
+    );
+  }
+
   await stopLingeringWorkspaceProcesses();
   await stopWorkspaceNextServer();
   await prepareServerPort();
@@ -438,6 +473,7 @@ const main = async () => {
     "@nova/server",
     ["--filter", "@nova/server", "run", "dev"],
     {
+      HOST: backendHost,
       PORT: String(desiredServerPort),
       NOVA_RUNTIME_MODE: process.env.NOVA_RUNTIME_MODE ?? "openclaw",
     }
@@ -452,6 +488,12 @@ const main = async () => {
 
   await waitForNovaHealth();
 
+  console.log(
+    isLanMode
+      ? `Starting Nova in LAN mode at ${desiredWebOrigin}`
+      : `Starting Nova locally at ${desiredWebOrigin}`
+  );
+
   const web = spawnChild(
     "@nova/web",
     [
@@ -461,13 +503,13 @@ const main = async () => {
       "next",
       "dev",
       "--hostname",
-      "127.0.0.1",
+      webHostname,
       "--port",
       String(desiredWebPort),
     ],
     {
       NOVA_BACKEND_URL: desiredBackendUrl,
-      NEXT_PUBLIC_WEB_ORIGIN: `http://127.0.0.1:${desiredWebPort}`,
+      NEXT_PUBLIC_WEB_ORIGIN: desiredWebOrigin,
     }
   );
   children.push(web);

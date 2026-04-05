@@ -3,6 +3,10 @@ import { notFound } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { ApiError, getAgent, getProjects } from "@/lib/api";
 import { AgentActionButtons } from "@/components/agents/agent-action-buttons";
+import { CollapsibleMarkdownSection } from "@/components/agents/collapsible-markdown-section";
+import { formatTimestampForDisplay } from "@/lib/display-preferences";
+import { getServerDisplayPreferences } from "@/lib/display-preferences.server";
+import { formatThinkingLevelLabelForRuntime } from "@/lib/runtime-thinking";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,12 +27,14 @@ async function loadAgent(id: string) {
   }
 }
 
+
 export default async function AgentDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const displayPreferences = await getServerDisplayPreferences();
   const [agent, projects] = await Promise.all([loadAgent(id), getProjects()]);
   const assignments = agent.projectIds.map((projectId) => ({
     id: projectId,
@@ -52,7 +58,7 @@ export default async function AgentDetailPage({
         className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm mb-8 anim-1"
       >
         <Icon name="arrow_back" size={16} />
-        Agent Fleet
+        Agents
       </Link>
 
       {/* Header */}
@@ -96,7 +102,10 @@ export default async function AgentDetailPage({
             Thinking
           </p>
           <p className="font-mono text-sm text-on-surface">
-            {agent.runtime.defaultThinkingLevel}
+            {formatThinkingLevelLabelForRuntime(
+              agent.runtime.kind,
+              agent.runtime.defaultThinkingLevel
+            )}
           </p>
         </div>
         <div className="bg-surface-container-low p-5 ghost">
@@ -111,51 +120,41 @@ export default async function AgentDetailPage({
           <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
             Last Synced
           </p>
-          <p className="font-mono text-sm text-on-surface">
-            {agent.lastSyncedAt
-              ? new Intl.DateTimeFormat("en", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                }).format(new Date(agent.lastSyncedAt))
-              : "Never"}
-          </p>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          {/* Directive */}
-          <section className="bg-surface-container p-6 ghost anim-3">
-            <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
-              Directive
-            </h3>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
-              {agent.systemInstructions || "No system instructions configured."}
+            <p className="font-mono text-sm text-on-surface">
+              {agent.lastSyncedAt
+                ? formatTimestampForDisplay(agent.lastSyncedAt, displayPreferences, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })
+                : "Never"}
             </p>
-          </section>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          <CollapsibleMarkdownSection
+            title="Directive"
+            content={agent.systemInstructions}
+            empty="No system instructions configured."
+          />
 
           {/* Persona & Tools */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 anim-3">
-            <section className="bg-surface-container p-6 ghost">
-              <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
-                Persona
-              </h3>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
-                {agent.personaText || "Not configured."}
-              </p>
-            </section>
-            <section className="bg-surface-container p-6 ghost">
-              <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface mb-4">
-                Tools
-              </h3>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-on-surface">
-                {agent.toolsText || "Not configured."}
-              </p>
-            </section>
+            <CollapsibleMarkdownSection
+              title="Persona"
+              content={agent.personaText}
+              empty="Not configured."
+            />
+            <CollapsibleMarkdownSection
+              title="Tools"
+              content={agent.toolsText}
+              empty="Not configured."
+            />
           </div>
 
           {/* Runtime Paths */}

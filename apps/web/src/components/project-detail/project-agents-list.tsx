@@ -18,7 +18,7 @@ const statusConfig: Record<
     dot: "bg-secondary/50",
   },
   error: {
-    label: "Anomaly",
+    label: "Error",
     bg: "bg-error/10",
     text: "text-error",
     dot: "bg-error",
@@ -36,7 +36,7 @@ export function ProjectAgentsList({ agents }: { agents: ProjectAgent[] }) {
     <section className="anim-4">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface">
-          Assigned Autonomous Entities
+          Assigned Agents
         </h3>
         <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase">
           Total: {String(agents.length).padStart(2, "0")} Active

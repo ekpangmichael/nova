@@ -59,7 +59,7 @@ export default function NewProjectPage() {
     }
 
     if (seedType === "git" && !seedUrl.trim()) {
-      setErrorMessage("Seed URL is required when the seed type is Git.");
+      setErrorMessage("Repository URL is required for Git projects.");
       return;
     }
 
@@ -105,11 +105,10 @@ export default function NewProjectPage() {
       {/* Header */}
       <div className="mb-16 anim-1">
         <h1 className="text-4xl font-light tracking-tight text-on-surface mb-3">
-          Initialize Project
+          New Project
         </h1>
         <p className="text-on-surface-variant text-base leading-relaxed max-w-lg">
-          Define the operational parameters for your new autonomous workspace.
-          Agents will be synchronized upon creation.
+          Set up a new project workspace. You can assign agents and create tasks after the project is created.
         </p>
       </div>
 
@@ -117,16 +116,16 @@ export default function NewProjectPage() {
       <form className="space-y-12" onSubmit={handleSubmit}>
         {/* Identity Section */}
         <div className="space-y-8 anim-2">
-          <div className="group border-b border-outline-variant/10 pb-2">
-            <label className="block text-[10px] uppercase tracking-[0.2em] text-on-surface-variant mb-1 font-medium">
+          <div>
+            <label className="block text-[10px] uppercase tracking-[0.2em] text-on-surface-variant mb-4 font-medium">
               Project Name
             </label>
             <input
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="w-full bg-transparent border-none p-0 text-xl text-on-surface placeholder:text-surface-container-highest focus:ring-0 focus:outline-none"
-              placeholder="Untitled-Operation-01"
+              className="w-full bg-surface-container-low rounded-sm ghost px-4 py-3 text-sm text-on-surface placeholder:text-on-surface-variant/20 focus:border-secondary/50 focus:ring-0 transition-all"
+              placeholder="e.g. Marketing Website Redesign"
             />
           </div>
           <div>
@@ -137,7 +136,7 @@ export default function NewProjectPage() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               className="w-full bg-surface-container-low p-4 text-on-surface placeholder:text-on-surface-variant/20 text-sm leading-relaxed resize-y min-h-[100px] border-none focus:ring-0 focus:outline-none"
-              placeholder="Brief objectives and tactical scope..."
+              placeholder="What is this project about?"
               rows={4}
             />
           </div>
@@ -202,7 +201,7 @@ export default function NewProjectPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10 anim-3">
           <div>
             <label className="block text-[10px] uppercase tracking-[0.2em] text-on-surface-variant mb-4 font-medium">
-              Seed Type
+              Source Type
             </label>
             <div className="relative">
               <select
@@ -240,7 +239,7 @@ export default function NewProjectPage() {
         {seedType === "git" ? (
           <div className="anim-3">
             <label className="block text-[10px] uppercase tracking-[0.2em] text-on-surface-variant mb-4 font-medium">
-              Seed Repository URL
+              Repository URL
             </label>
             <input
               type="url"

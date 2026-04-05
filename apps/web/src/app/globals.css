@@ -63,6 +63,62 @@
 }
 
 /* ============================= */
+/* Light Mode Overrides          */
+/* ============================= */
+html.light {
+  /* Surface tier — bright warm base, crisp white cards */
+  --color-surface: #f5f3f0;
+  --color-surface-dim: #edebe8;
+  --color-surface-bright: #ffffff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #ffffff;
+  --color-surface-container: #faf9f8;
+  --color-surface-container-high: #f0efed;
+  --color-surface-container-highest: #e8e6e4;
+  --color-surface-variant: #f0efed;
+
+  /* On-surface text — pure black base so /40 and /30 opacity
+   * modifiers still produce strong, readable grays */
+  --color-on-surface: #000000;
+  --color-on-surface-variant: #000000;
+  --color-on-background: #000000;
+
+  /* Outline / Ghost borders */
+  --color-outline: #858078;
+  --color-outline-variant: #d6d2cd;
+
+  /* Primary (Neutral) */
+  --color-primary: #2d2b28;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #eae8e5;
+  --color-on-primary-container: #1a1918;
+
+  /* Secondary (Blue) — vivid royal blue */
+  --color-secondary: #1a56db;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #d6e4ff;
+  --color-secondary-dim: #3170f0;
+
+  /* Tertiary (Green) — vivid emerald */
+  --color-tertiary: #0d9443;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #d5f5e0;
+  --color-tertiary-dim: #10b853;
+
+  /* Error — vivid red */
+  --color-error: #e02424;
+  --color-on-error: #ffffff;
+  --color-error-container: #fde8e8;
+
+  /* Inverse */
+  --color-inverse-surface: #1c1917;
+  --color-inverse-primary: #d6d3d0;
+
+  /* Ghost borders in light mode */
+  --ghost-opacity: 35%;
+}
+
+/* ============================= */
 /* Font Tokens (runtime vars)    */
 /* ============================= */
 @theme inline {
@@ -110,8 +166,8 @@
 @utility scrollbar-thin {
   &::-webkit-scrollbar { width: 3px; }
   &::-webkit-scrollbar-track { background: transparent; }
-  &::-webkit-scrollbar-thumb { background: rgba(72,72,75,0.25); border-radius: 4px; }
-  &::-webkit-scrollbar-thumb:hover { background: rgba(72,72,75,0.5); }
+  &::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--color-outline) 25%, transparent); border-radius: 4px; }
+  &::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--color-outline) 50%, transparent); }
 }
 
 @utility dot-grid {
@@ -120,23 +176,23 @@
 }
 
 @utility ghost {
-  border: 1px solid rgba(72,72,75,0.08);
+  border: 1px solid color-mix(in srgb, var(--color-outline-variant) var(--ghost-opacity, 12%), transparent);
 }
 
 @utility ghost-b {
-  border-bottom: 1px solid rgba(72,72,75,0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-outline-variant) var(--ghost-opacity, 10%), transparent);
 }
 
 @utility ghost-r {
-  border-right: 1px solid rgba(72,72,75,0.06);
+  border-right: 1px solid color-mix(in srgb, var(--color-outline-variant) var(--ghost-opacity, 10%), transparent);
 }
 
 @utility ghost-t {
-  border-top: 1px solid rgba(72,72,75,0.06);
+  border-top: 1px solid color-mix(in srgb, var(--color-outline-variant) var(--ghost-opacity, 10%), transparent);
 }
 
 @utility ghost-l {
-  border-left: 1px solid rgba(72,72,75,0.06);
+  border-left: 1px solid color-mix(in srgb, var(--color-outline-variant) var(--ghost-opacity, 10%), transparent);
 }
 
 @utility glow-green {
@@ -152,6 +208,69 @@
 }
 
 /* ============================= */
+/* Light Mode Text Opacity Boost */
+/* ============================= */
+/* Tailwind opacity modifiers (/40, /30 …) are too faint on a cream   */
+/* background. These overrides raise the floor in light mode only.     */
+/* :where(html.light) keeps specificity at (0,1,0) so hover variants  */
+/* (specificity 0,2,0) still win when the user hovers.                */
+/* [class~="…"] matches whole class-name tokens, avoiding false        */
+/* positives on hover: / group-hover: prefixed classes.                */
+@layer utilities {
+  /* on-surface-variant — the most‑used muted text color */
+  :where(html.light) :is(
+    [class~="text-on-surface-variant/15"],
+    [class~="text-on-surface-variant/20"],
+    [class~="text-on-surface-variant/25"]
+  ) { color: rgba(0, 0, 0, 0.52); }
+
+  :where(html.light) :is(
+    [class~="text-on-surface-variant/30"],
+    [class~="text-on-surface-variant/35"],
+    [class~="text-on-surface-variant/40"]
+  ) { color: rgba(0, 0, 0, 0.66); }
+
+  :where(html.light) :is(
+    [class~="text-on-surface-variant/45"],
+    [class~="text-on-surface-variant/50"]
+  ) { color: rgba(0, 0, 0, 0.76); }
+
+  :where(html.light) :is(
+    [class~="text-on-surface-variant/55"],
+    [class~="text-on-surface-variant/60"]
+  ) { color: rgba(0, 0, 0, 0.84); }
+
+  :where(html.light) :is(
+    [class~="text-on-surface-variant/65"],
+    [class~="text-on-surface-variant/70"]
+  ) { color: rgba(0, 0, 0, 0.90); }
+
+  /* on-surface — main text at reduced opacity */
+  :where(html.light) [class~="text-on-surface/40"] { color: rgba(0, 0, 0, 0.66); }
+  :where(html.light) [class~="text-on-surface/60"] { color: rgba(0, 0, 0, 0.82); }
+  :where(html.light) [class~="text-on-surface/70"] { color: rgba(0, 0, 0, 0.88); }
+  :where(html.light) [class~="text-on-surface/75"] { color: rgba(0, 0, 0, 0.92); }
+  :where(html.light) [class~="text-on-surface/80"] { color: rgba(0, 0, 0, 0.94); }
+
+  /* outline — section labels & subtle chrome */
+  :where(html.light) :is(
+    [class~="text-outline/25"],
+    [class~="text-outline/30"],
+    [class~="text-outline/35"],
+    [class~="text-outline/40"]
+  ) { color: rgba(80, 75, 68, 0.74); }
+
+  :where(html.light) [class~="text-outline/50"] { color: rgba(80, 75, 68, 0.84); }
+
+  /* primary — brand/neutral accent at low opacity */
+  :where(html.light) [class~="text-primary/25"] { color: rgba(45, 43, 40, 0.52); }
+  :where(html.light) :is(
+    [class~="text-primary/40"],
+    [class~="text-primary/50"]
+  ) { color: rgba(45, 43, 40, 0.72); }
+}
+
+/* ============================= */
 /* Base Styles                   */
 /* ============================= */
 body {
@@ -159,6 +278,37 @@ body {
   color: var(--color-on-surface);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Sidebar active state — theme-aware */
+.nav-active-bg {
+  border-left: 2px solid var(--color-secondary);
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: var(--color-on-surface);
+}
+
+.nav-active-icon {
+  color: var(--color-secondary);
+}
+
+html.light .nav-active-bg {
+  border-left: none;
+  border-radius: 0.5rem;
+  background: var(--color-secondary);
+  color: var(--color-on-secondary);
+}
+
+html.light .nav-active-icon {
+  color: var(--color-on-secondary);
+}
+
+/* Light mode: gentle card elevation */
+html.light .ghost {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+html.light .ghost-r {
+  box-shadow: 1px 0 3px rgba(0,0,0,0.03);
 }
 
 

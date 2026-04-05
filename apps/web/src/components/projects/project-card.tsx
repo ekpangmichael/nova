@@ -51,7 +51,7 @@ export function ProjectCard({ project }: { project: ApiProjectSummary }) {
             {project.name}
           </h4>
           <p className="mt-2 text-sm text-on-surface-variant leading-relaxed line-clamp-2">
-            {project.description || "No description yet. This project is ready for agent assignment and task intake."}
+            {project.description || "No description provided."}
           </p>
         </div>
         <button className="text-on-surface-variant hover:text-on-surface transition-colors">
@@ -108,7 +108,7 @@ export function ProjectCard({ project }: { project: ApiProjectSummary }) {
             ))
           ) : (
             <span className="text-[10px] font-mono text-on-surface-variant uppercase tracking-widest">
-              {project.seedType === "git" ? "Git Seeded" : "Manual Root"}
+              {project.seedType === "git" ? "Git Repository" : "Local Directory"}
             </span>
           )}
         </div>

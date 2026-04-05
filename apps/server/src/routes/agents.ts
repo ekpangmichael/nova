@@ -3,7 +3,9 @@ import type { FastifyPluginAsync } from "fastify";
 import { parseOrThrow } from "../lib/http.js";
 
 const runtimeSchema = z.object({
-  kind: z.literal("openclaw-native").default("openclaw-native"),
+  kind: z
+    .enum(["openclaw-native", "codex", "claude-code"])
+    .default("openclaw-native"),
   runtimeAgentId: z.string().min(1).optional(),
   workspacePath: z.string().min(1).optional(),
   runtimeStatePath: z.string().min(1).optional(),
@@ -30,6 +32,29 @@ const createAgentSchema = z.object({
   runtime: runtimeSchema.optional(),
 });
 
+const importOpenClawAgentSchema = z.object({
+  name: z.string().min(1),
+  role: z.string().min(1),
+  slug: z.string().optional(),
+  avatar: z.string().nullable().optional(),
+  systemInstructions: z.string().optional(),
+  personaText: z.string().nullable().optional(),
+  userContextText: z.string().nullable().optional(),
+  identityText: z.string().nullable().optional(),
+  toolsText: z.string().nullable().optional(),
+  heartbeatText: z.string().nullable().optional(),
+  memoryText: z.string().nullable().optional(),
+  runtime: z.object({
+    runtimeAgentId: z.string().min(1),
+    defaultModelId: z.string().min(1).nullable().optional(),
+    modelOverrideAllowed: z.boolean().optional(),
+    sandboxMode: z.enum(["off", "docker", "other"]).optional(),
+    defaultThinkingLevel: z
+      .enum(["off", "minimal", "low", "medium", "high", "xhigh"])
+      .optional(),
+  }),
+});
+
 const patchAgentSchema = createAgentSchema.partial().extend({
   runtime: runtimeSchema.partial().optional(),
   status: z.enum(["idle", "working", "paused", "error", "offline"]).optional(),
@@ -45,6 +70,11 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
   app.post("/agents", async (request) => {
     const body = parseOrThrow(createAgentSchema, request.body);
     return app.services.nova.createAgent(body);
+  });
+
+  app.post("/agents/import/openclaw", async (request) => {
+    const body = parseOrThrow(importOpenClawAgentSchema, request.body);
+    return app.services.nova.importOpenClawAgent(body);
   });
 
   app.get("/agents/:agentId", async (request) => {

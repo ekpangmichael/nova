@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { TaskDetailScreen } from "@/components/task-detail/task-detail-screen";
 import {
   ApiError,
+  getAgents,
   getRunEvents,
   getTask,
 } from "@/lib/api";
@@ -14,7 +15,7 @@ export default async function TaskDetailPage({
   const { id, taskId } = await params;
 
   try {
-    const task = await getTask(taskId);
+    const [task, agents] = await Promise.all([getTask(taskId), getAgents()]);
 
     if (task.project.id !== id) {
       notFound();
@@ -27,6 +28,7 @@ export default async function TaskDetailPage({
         projectId={id}
         initialTask={task}
         initialRunEvents={runEvents}
+        allAgents={agents}
       />
     );
   } catch (error) {

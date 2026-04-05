@@ -15,6 +15,11 @@ import {
   selectExecutionTargetDirectory,
   uploadTaskAttachment,
 } from "@/lib/api";
+import {
+  MAX_TASK_ATTACHMENT_BYTES,
+  TASK_ATTACHMENT_ACCEPT_ATTR,
+  isAllowedTaskAttachment,
+} from "@/lib/task-attachments";
 
 const priorities = [
   { label: "Low", value: "low" as const },
@@ -36,6 +41,10 @@ function combineDescription(description: string, technicalInstructions: string) 
   }
 
   return `${trimmedDescription}\n\nTechnical Instructions\n${trimmedTechnicalInstructions}`;
+}
+
+function formatAllowedAttachmentSummary() {
+  return "PDF, JSON, MD, TXT, HTML, CSS, JS, TS, PY, XML, DOC, DOCX, images (max 25MB each)";
 }
 
 function NewTaskPageContent() {
@@ -495,14 +504,56 @@ function NewTaskPageContent() {
                   </span>
                 </p>
                 <p className="mt-2 text-[10px] uppercase tracking-tighter text-outline">
-                  PDF, JSON, MD, TXT (Max 25MB each)
+                  {formatAllowedAttachmentSummary()}
                 </p>
                 <input
                   type="file"
                   multiple
+                  accept={TASK_ATTACHMENT_ACCEPT_ATTR}
                   className="hidden"
                   onChange={(event) => {
-                    setSelectedFiles(Array.from(event.target.files ?? []));
+                    const nextFiles = Array.from(event.target.files ?? []);
+                    const allowedFiles = nextFiles.filter((file) =>
+                      isAllowedTaskAttachment({
+                        fileName: file.name,
+                        mimeType: file.type,
+                      })
+                    );
+                    const oversizedFiles = allowedFiles.filter(
+                      (file) => file.size > MAX_TASK_ATTACHMENT_BYTES
+                    );
+                    const acceptedFiles = allowedFiles.filter(
+                      (file) => file.size <= MAX_TASK_ATTACHMENT_BYTES
+                    );
+                    const rejectedFiles = nextFiles.filter(
+                      (file) =>
+                        !isAllowedTaskAttachment({
+                          fileName: file.name,
+                          mimeType: file.type,
+                        })
+                    );
+
+                    setSelectedFiles(acceptedFiles);
+
+                    if (rejectedFiles.length > 0) {
+                      setErrorMessage(
+                        `Unsupported attachment type: ${rejectedFiles
+                          .map((file) => file.name)
+                          .join(", ")}. Use documents, images, or source files such as PDF, JSON, Markdown, HTML, CSS, JavaScript, Python, XML, DOC, DOCX, TXT, or common image formats.`
+                      );
+                      return;
+                    }
+
+                    if (oversizedFiles.length > 0) {
+                      setErrorMessage(
+                        `Attachment exceeds the 25 MB limit: ${oversizedFiles
+                          .map((file) => file.name)
+                          .join(", ")}.`
+                      );
+                      return;
+                    }
+
+                    setErrorMessage(null);
                   }}
                 />
               </label>
@@ -556,7 +607,7 @@ function NewTaskPageContent() {
               disabled={isSubmitting || isLoading || agents.length === 0}
               className="flex-1 rounded-sm bg-primary px-12 py-3 text-sm font-bold text-on-primary transition-all active:scale-[0.98] disabled:opacity-50 md:flex-none"
             >
-              {isSubmitting ? "Initializing…" : "Initialize Task"}
+              {isSubmitting ? "Creating…" : "Create Task"}
             </button>
           </div>
         </footer>

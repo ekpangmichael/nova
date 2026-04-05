@@ -3,40 +3,25 @@ import { notFound } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { ApiError, getAgents, getProject, getProjectActivity } from "@/lib/api";
 import { ProjectActionButtons } from "@/components/project-detail/project-action-buttons";
+import { formatTimestampForDisplay } from "@/lib/display-preferences";
+import { getServerDisplayPreferences } from "@/lib/display-preferences.server";
 
-const statusConfig = {
-  active: {
-    label: "Active",
-    className: "bg-tertiary/15 text-tertiary",
-  },
-  paused: {
-    label: "Paused",
-    className: "bg-secondary/15 text-secondary",
-  },
-  archived: {
-    label: "Archived",
-    className: "bg-on-surface-variant/10 text-on-surface-variant",
-  },
-} as const;
+const statusDot: Record<string, string> = {
+  active: "bg-tertiary shadow-[0_0_6px_rgba(209,255,215,0.4)]",
+  paused: "bg-secondary shadow-[0_0_6px_rgba(123,153,255,0.3)]",
+  archived: "bg-outline/20",
+};
 
-const formatDateTime = (timestamp: string) =>
-  new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(timestamp));
+const statusLabel: Record<string, string> = {
+  active: "text-tertiary",
+  paused: "text-secondary",
+  archived: "text-on-surface-variant/30",
+};
 
-const formatActivityLabel = (type: "comment" | "run" | "assignment") => {
-  switch (type) {
-    case "assignment":
-      return { icon: "person_add", tone: "text-secondary" };
-    case "run":
-      return { icon: "play_circle", tone: "text-tertiary" };
-    case "comment":
-      return { icon: "chat", tone: "text-primary" };
-  }
+const activityVisual: Record<string, { icon: string; tone: string }> = {
+  assignment: { icon: "person_add", tone: "text-secondary" },
+  run: { icon: "play_circle", tone: "text-tertiary" },
+  comment: { icon: "chat", tone: "text-on-surface-variant/50" },
 };
 
 export default async function ProjectDetailPage({
@@ -45,6 +30,7 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const displayPreferences = await getServerDisplayPreferences();
 
   try {
     const [project, activity, agents] = await Promise.all([
@@ -52,233 +38,283 @@ export default async function ProjectDetailPage({
       getProjectActivity(id),
       getAgents(),
     ]);
-    const assignedAgents = agents.filter((agent) => agent.projectIds.includes(project.id));
+    const assignedAgents = agents.filter((agent) =>
+      agent.projectIds.includes(project.id),
+    );
     const visibleActivity = activity.slice(0, 5);
-    const status = statusConfig[project.status];
+    const dot = statusDot[project.status] ?? "bg-outline/20";
+    const label = statusLabel[project.status] ?? "text-on-surface-variant/30";
+    const formatDate = (timestamp: string) =>
+      formatTimestampForDisplay(timestamp, displayPreferences, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
 
     return (
-      <>
-        <Link
-          href="/projects"
-          className="text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm mb-8 anim-1"
-        >
-          <Icon name="arrow_back" size={16} />
-          Projects
-        </Link>
+      <div className="h-full overflow-y-auto pr-2 scrollbar-thin">
+        <div className="mx-auto max-w-4xl pb-16">
+          {/* Back link */}
+          <Link
+            href="/projects"
+            className="mb-6 inline-flex items-center gap-1.5 text-[13px] text-on-surface-variant/40 transition-colors hover:text-on-surface-variant/70 anim-1"
+          >
+            <Icon name="arrow_back" size={14} />
+            Projects
+          </Link>
 
-        <div className="flex flex-col gap-4 mb-10 anim-1">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className={`font-mono text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-sm ${status.className}`}>
-                {status.label}
-              </span>
-              <span className="font-mono text-[10px] text-on-surface-variant/40 uppercase tracking-widest">
-                ID: {project.id}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ProjectActionButtons
-                projectId={project.id}
-                projectName={project.name}
-              />
-              <Link
-                href={`/projects/${project.id}/board`}
-                className="ghost px-5 py-2.5 rounded-sm text-sm font-bold text-on-surface flex items-center gap-2 hover:bg-surface-container-high/60 transition-all"
-              >
-                Go to Project Board
-                <Icon name="arrow_forward" size={16} />
-              </Link>
-            </div>
-          </div>
-          <div>
-            <h2 className="text-4xl font-extrabold tracking-tighter text-on-surface">
-              {project.name}
-            </h2>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-10 anim-2">
-          <div className="bg-surface-container-low p-5 ghost">
-            <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
-              Backlog
-            </p>
-            <p className="text-3xl font-black tracking-tight text-on-surface">
-              {project.backlogTaskCount}
-            </p>
-          </div>
-          <div className="bg-surface-container-low p-5 ghost">
-            <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
-              Assigned Agents
-            </p>
-            <p className="text-3xl font-black tracking-tight text-on-surface">
-              {assignedAgents.length}
-            </p>
-          </div>
-          <div className="bg-surface-container-low p-5 ghost">
-            <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
-              Open Tasks
-            </p>
-            <p className="text-3xl font-black tracking-tight text-on-surface">
-              {project.openTaskCount}
-            </p>
-          </div>
-          <div className="bg-surface-container-low p-5 ghost">
-            <p className="font-mono text-[9px] text-on-surface-variant uppercase tracking-widest mb-3">
-              Updated
-            </p>
-            <p className="font-mono text-sm text-on-surface">{formatDateTime(project.updatedAt)}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
-            <section className="bg-surface-container p-6 ghost anim-3">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface">
-                  Configuration
-                </h3>
-                <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-widest">
-                  {project.seedType === "git" ? "Git Seed" : "Manual Root"}
-                </span>
+          {/* Header */}
+          <div className="mb-8 anim-1">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="mb-2 flex items-center gap-2.5">
+                  <div className={`h-2 w-2 rounded-full ${dot}`} />
+                  <span
+                    className={`font-mono text-[10px] uppercase tracking-wider ${label}`}
+                  >
+                    {project.status}
+                  </span>
+                  {project.seedType === "git" && (
+                    <>
+                      <span className="text-outline-variant/15">|</span>
+                      <span className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/25">
+                        Git
+                      </span>
+                    </>
+                  )}
+                </div>
+                <h1 className="text-2xl font-bold tracking-[-0.03em] text-on-surface">
+                  {project.name}
+                </h1>
+                {project.description && (
+                  <p className="mt-1.5 text-[13px] leading-relaxed text-on-surface-variant/40">
+                    {project.description}
+                  </p>
+                )}
               </div>
-              <dl className="space-y-4 text-sm">
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
-                    Description
-                  </dt>
-                  <dd className="text-on-surface leading-relaxed">
-                    {project.description ? (
-                      project.description
-                    ) : (
-                      <span className="text-on-surface-variant">No description</span>
-                    )}
-                  </dd>
+              <div className="flex shrink-0 items-center gap-2">
+                <ProjectActionButtons
+                  projectId={project.id}
+                  projectName={project.name}
+                />
+                <Link
+                  href={`/projects/${project.id}/board`}
+                  className="flex items-center gap-2 rounded-md bg-secondary/15 px-4 py-2.5 text-[12px] font-semibold text-secondary transition-colors hover:bg-secondary/20"
+                >
+                  Board
+                  <Icon name="arrow_forward" size={14} />
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="mb-8 grid grid-cols-4 gap-3 anim-2">
+            {[
+              {
+                label: "Backlog",
+                value: project.backlogTaskCount,
+                tone: "text-on-surface",
+              },
+              {
+                label: "Agents",
+                value: assignedAgents.length,
+                tone: "text-secondary",
+              },
+              {
+                label: "Open tasks",
+                value: project.openTaskCount,
+                tone:
+                  project.openTaskCount > 0
+                    ? "text-tertiary"
+                    : "text-on-surface-variant/40",
+              },
+              {
+                label: "Updated",
+                value: null,
+                tone: "text-on-surface",
+              },
+            ].map((s) => (
+              <div
+                key={s.label}
+                className="rounded-xl bg-surface-container-low px-5 py-4 ghost"
+              >
+                <p className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/40">
+                  {s.label}
+                </p>
+                {s.value !== null ? (
+                  <p className={`mt-1.5 text-2xl font-semibold ${s.tone}`}>
+                    {s.value}
+                  </p>
+                ) : (
+                  <p className="mt-1.5 font-mono text-[13px] text-on-surface/70">
+                    {formatDate(project.updatedAt)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Two-column layout */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+            {/* Left column */}
+            <div className="space-y-6 lg:col-span-3">
+              {/* Details */}
+              <section className="rounded-xl bg-surface-container-low ghost anim-3">
+                <div className="flex items-center justify-between px-5 py-4 ghost-b">
+                  <h3 className="text-[12px] font-semibold tracking-tight text-on-surface">
+                    Details
+                  </h3>
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/25">
+                    {project.seedType === "git" ? "Git Repository" : "Local Directory"}
+                  </span>
                 </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
-                    Project Root
-                  </dt>
-                  <dd className="font-mono text-on-surface">{project.projectRoot}</dd>
-                </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
-                    Seed URL
-                  </dt>
-                  <dd className="text-on-surface">
-                    {project.seedUrl ? (
+                <div className="space-y-3.5 px-5 py-4">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/35">
+                      Root
+                    </span>
+                    <span className="truncate text-right font-mono text-[12px] text-on-surface/70">
+                      {project.projectRoot}
+                    </span>
+                  </div>
+                  {project.seedUrl && (
+                    <div className="flex items-baseline justify-between gap-4">
+                      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/35">
+                        Repository
+                      </span>
                       <a
                         href={project.seedUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-secondary hover:text-secondary/80 transition-colors break-all"
+                        className="truncate text-right text-[12px] text-secondary hover:text-secondary/80 transition-colors"
                       >
                         {project.seedUrl}
                       </a>
-                    ) : (
-                      "None"
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
-                    Tags
-                  </dt>
-                  <dd className="flex flex-wrap gap-2">
-                    {project.tags.length > 0 ? (
-                      project.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="px-2 py-1 text-[10px] font-mono uppercase tracking-widest bg-surface-container-low text-on-surface-variant"
-                        >
-                          {tag}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-on-surface-variant">No tags</span>
-                    )}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            <section className="bg-surface-container p-6 ghost anim-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface">
-                  Assigned Agents
-                </h3>
-                <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-widest">
-                  {assignedAgents.length} linked
-                </span>
-              </div>
-              {assignedAgents.length > 0 ? (
-                <div className="space-y-3">
-                  {assignedAgents.map((agent) => (
-                    <div
-                      key={agent.id}
-                      className="bg-surface-container-low px-4 py-3 flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="font-mono text-sm text-on-surface">{agent.name}</p>
-                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">
-                          {agent.role}
-                        </p>
-                      </div>
-                      <span className="font-mono text-[10px] uppercase tracking-widest text-on-surface-variant">
-                        {agent.status}
-                      </span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-on-surface-variant">
-                  No agents are assigned to this project yet.
-                </p>
-              )}
-            </section>
-          </div>
-
-          <aside className="space-y-4 anim-3">
-            <div className="bg-surface-container p-6 ghost">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[11px] font-bold tracking-widest uppercase text-on-surface">
-                  Activity
-                </h3>
-                <span className="font-mono text-[9px] text-on-surface-variant/40 uppercase tracking-widest">
-                  Latest 5
-                </span>
-              </div>
-              {visibleActivity.length > 0 ? (
-                <div className="space-y-4">
-                  {visibleActivity.map((item) => {
-                    const visual = formatActivityLabel(item.type);
-
-                    return (
-                      <div key={item.id} className="pl-9 relative">
-                        <div className="absolute left-0 top-0.5 w-6 h-6 rounded-full bg-surface-container-low flex items-center justify-center">
-                          <Icon name={visual.icon} size={14} className={visual.tone} />
-                        </div>
-                        <p className="font-mono text-[9px] text-on-surface-variant/35 mb-1">
-                          {formatDateTime(item.createdAt)}
-                        </p>
-                        <p className="text-[12px] font-bold uppercase tracking-wide text-on-surface/80 mb-1">
-                          {item.title}
-                        </p>
-                        <p className="font-mono text-[10px] text-on-surface-variant/60 leading-relaxed">
-                          {item.message}
-                        </p>
+                  )}
+                  {project.tags.length > 0 && (
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant/35">
+                        Tags
+                      </span>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        {project.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-md bg-surface-container-high/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.08em] text-on-surface-variant/30"
+                          >
+                            {tag}
+                          </span>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-on-surface-variant">
-                  No project activity has been recorded yet.
-                </p>
-              )}
+              </section>
+
+              {/* Assigned agents */}
+              <section className="rounded-xl bg-surface-container-low ghost anim-4">
+                <div className="flex items-center justify-between px-5 py-4 ghost-b">
+                  <h3 className="text-[12px] font-semibold tracking-tight text-on-surface">
+                    Assigned agents
+                  </h3>
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/25">
+                    {assignedAgents.length} linked
+                  </span>
+                </div>
+                {assignedAgents.length > 0 ? (
+                  <div className="divide-y divide-outline-variant/[0.06]">
+                    {assignedAgents.map((agent) => (
+                      <Link
+                        key={agent.id}
+                        href={`/agents/${agent.id}`}
+                        className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-surface-container-high/20"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary/8">
+                            <Icon
+                              name={agent.avatar || "smart_toy"}
+                              size={16}
+                              className="text-secondary/60"
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium text-on-surface">
+                              {agent.name}
+                            </p>
+                            <p className="truncate text-[11px] text-on-surface-variant/35">
+                              {agent.role}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/30">
+                          {agent.status}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-5 py-6 text-center">
+                    <p className="text-[13px] text-on-surface-variant/35">
+                      No agents assigned yet.
+                    </p>
+                  </div>
+                )}
+              </section>
             </div>
-          </aside>
+
+            {/* Right column - activity */}
+            <aside className="lg:col-span-2 anim-3">
+              <div className="rounded-xl bg-surface-container-low ghost">
+                <div className="flex items-center justify-between px-5 py-4 ghost-b">
+                  <h3 className="text-[12px] font-semibold tracking-tight text-on-surface">
+                    Activity
+                  </h3>
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/25">
+                    Latest {visibleActivity.length}
+                  </span>
+                </div>
+                {visibleActivity.length > 0 ? (
+                  <div className="divide-y divide-outline-variant/[0.06]">
+                    {visibleActivity.map((item) => {
+                      const vis =
+                        activityVisual[item.type] ?? activityVisual.comment;
+                      return (
+                        <div key={item.id} className="px-5 py-3.5">
+                          <div className="mb-1 flex items-center gap-2">
+                            <Icon
+                              name={vis.icon}
+                              size={13}
+                              className={vis.tone}
+                            />
+                            <span className="font-mono text-[9px] text-on-surface-variant/25">
+                              {formatDate(item.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-[12px] font-medium text-on-surface/70">
+                            {item.title}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-on-surface-variant/35">
+                            {item.message}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-5 py-6 text-center">
+                    <p className="text-[13px] text-on-surface-variant/35">
+                      No activity yet.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </aside>
+          </div>
         </div>
-      </>
+      </div>
     );
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {

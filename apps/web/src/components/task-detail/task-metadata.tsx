@@ -11,63 +11,90 @@ const priorityDot: Record<string, string> = {
 
 export function TaskMetadata({ task }: { task: TaskDetail }) {
   return (
-    <div className="p-5 bg-surface-container ghost space-y-5">
-      {/* Assigned Agent */}
-      <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
-          Assigned Agent
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
-            <Icon name="smart_toy" size={20} className="text-secondary" />
+    <div className="rounded-xl bg-surface-container-low ghost">
+      <div className="divide-y divide-outline-variant/[0.06]">
+        {/* Agent */}
+        <div className="px-5 py-4">
+          <p className="mb-2 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+            Assigned agent
+          </p>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary/8">
+              <Icon name="smart_toy" size={16} className="text-secondary/60" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-medium text-on-surface">
+                {task.assignedAgent.name}
+              </p>
+              <p className="truncate text-[11px] text-on-surface-variant/35">
+                {task.assignedAgent.role}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-medium text-on-surface">
-              {task.assignedAgent.name}
+        </div>
+
+        {/* Workspace */}
+        <div className="px-5 py-4">
+          <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+            Workspace
+          </p>
+          <p
+            className="truncate font-mono text-[12px] text-on-surface/60"
+            title={task.workspace}
+          >
+            {task.workspace}
+          </p>
+        </div>
+
+        {task.branch ? (
+          <div className="px-5 py-4">
+            <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+              Task branch
             </p>
-            <p className="text-xs text-on-surface-variant">
-              {task.assignedAgent.role}
-            </p>
+            {task.branch.url ? (
+              <a
+                href={task.branch.url}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate font-mono text-[12px] text-secondary transition hover:text-secondary/80"
+                title={task.branch.url}
+              >
+                {task.branch.name}
+              </a>
+            ) : (
+              <p
+                className="truncate font-mono text-[12px] text-on-surface/60"
+                title={task.branch.name}
+              >
+                {task.branch.name}
+              </p>
+            )}
           </div>
-        </div>
-      </div>
+        ) : null}
 
-      {/* Workspace */}
-      <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
-          Workspace
-        </p>
-        <div className="group flex items-center gap-2 text-on-surface min-w-0" title={task.workspace}>
-          <Icon name="layers" size={18} className="text-on-surface-variant shrink-0" />
-          <p className="text-sm font-medium font-mono truncate">{task.workspace}</p>
-        </div>
-      </div>
-
-      {/* Priority */}
-      <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
-          Priority
-        </p>
-        <div className="flex items-center gap-2">
-          <span
-            className={`w-2 h-2 rounded-full ${priorityDot[task.priorityColor]}`}
-          />
-          <p className="text-sm font-medium text-on-surface">{task.priority}</p>
-        </div>
-      </div>
-
-      {/* Deadline */}
-      <div className="space-y-2">
-        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant/50 font-semibold">
-          Deadline
-        </p>
-        <div className="flex items-center gap-2 text-on-surface">
-          <Icon
-            name="calendar_today"
-            size={18}
-            className="text-on-surface-variant"
-          />
-          <p className="text-sm font-medium">{task.deadline}</p>
+        {/* Priority + Deadline */}
+        <div className="flex divide-x divide-outline-variant/[0.06]">
+          <div className="flex-1 px-5 py-4">
+            <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+              Priority
+            </p>
+            <div className="flex items-center gap-2">
+              <div
+                className={`h-1.5 w-1.5 rounded-full ${priorityDot[task.priorityColor]}`}
+              />
+              <span className="text-[13px] font-medium text-on-surface">
+                {task.priority}
+              </span>
+            </div>
+          </div>
+          <div className="flex-1 px-5 py-4">
+            <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+              Deadline
+            </p>
+            <span className="text-[13px] font-medium text-on-surface">
+              {task.deadline}
+            </span>
+          </div>
         </div>
       </div>
     </div>

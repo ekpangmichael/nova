@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +31,7 @@ const compareNodeVersionLabels = (left: string, right: string) => {
   return 0;
 };
 
-const findBinaryOnPath = (binaryName: string) => {
+export const findBinaryOnPath = (binaryName: string) => {
   for (const pathEntry of splitPathEntries(process.env.PATH)) {
     const candidatePath = join(pathEntry, binaryName);
 
@@ -43,7 +43,7 @@ const findBinaryOnPath = (binaryName: string) => {
   return null;
 };
 
-const findNvmInstalledBinary = (binaryName: string) => {
+export const findNvmInstalledBinary = (binaryName: string) => {
   const nodeVersionsDir = join(homedir(), ".nvm", "versions", "node");
 
   if (!existsSync(nodeVersionsDir)) {
@@ -65,7 +65,7 @@ const findNvmInstalledBinary = (binaryName: string) => {
   return null;
 };
 
-const resolveOpenClawBinaryPath = (requestedPath: string) => {
+export const resolveOpenClawBinaryPath = (requestedPath: string) => {
   if (requestedPath !== "openclaw") {
     return requestedPath;
   }
@@ -75,6 +75,172 @@ const resolveOpenClawBinaryPath = (requestedPath: string) => {
     findNvmInstalledBinary("openclaw") ??
     requestedPath
   );
+};
+
+export const resolveOpenClawStateDir = (requestedPath?: string | null) =>
+  resolve(requestedPath ?? resolve(homedir(), ".openclaw"));
+
+export const resolveOpenClawConfigPath = (
+  stateDir: string,
+  requestedPath?: string | null
+) => resolve(requestedPath ?? resolve(stateDir, "openclaw.json"));
+
+export const resolveCodexBinaryPath = (requestedPath: string) => {
+  if (requestedPath !== "codex") {
+    return requestedPath;
+  }
+
+  return (
+    findBinaryOnPath("codex") ??
+    findNvmInstalledBinary("codex") ??
+    requestedPath
+  );
+};
+
+export const resolveClaudeBinaryPath = (requestedPath: string) => {
+  if (requestedPath !== "claude") {
+    return requestedPath;
+  }
+
+  const localUserBinary = join(homedir(), ".local", "bin", "claude");
+
+  return (
+    findBinaryOnPath("claude") ??
+    (binaryExistsAt(localUserBinary) ? localUserBinary : null) ??
+    findNvmInstalledBinary("claude") ??
+    requestedPath
+  );
+};
+
+export const resolveCodexStateDir = (requestedPath?: string | null) =>
+  resolve(requestedPath ?? resolve(homedir(), ".codex"));
+
+export const resolveCodexConfigPath = (
+  stateDir: string,
+  requestedPath?: string | null
+) => resolve(requestedPath ?? resolve(stateDir, "config.toml"));
+
+export const resolveClaudeStateDir = (requestedPath?: string | null) =>
+  resolve(requestedPath ?? resolve(homedir(), ".claude"));
+
+export const resolveClaudeConfigPath = (
+  stateDir: string,
+  requestedPath?: string | null
+) => resolve(requestedPath ?? resolve(stateDir, "settings.json"));
+
+export const detectOpenClawRuntimeConfig = (overrides?: {
+  profile?: string | null;
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  gatewayUrl?: string | null;
+}) => {
+  const stateDir = resolveOpenClawStateDir(overrides?.stateDir);
+
+  return {
+    profile: overrides?.profile?.trim() || "apm",
+    binaryPath: resolveOpenClawBinaryPath(
+      overrides?.binaryPath?.trim() || "openclaw"
+    ),
+    stateDir,
+    configPath: resolveOpenClawConfigPath(stateDir, overrides?.configPath),
+    gatewayUrl: overrides?.gatewayUrl?.trim() || null,
+  };
+};
+
+export const detectCodexRuntimeConfig = (overrides?: {
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  defaultModel?: string | null;
+}) => {
+  const stateDir = resolveCodexStateDir(overrides?.stateDir);
+  const configPath = resolveCodexConfigPath(stateDir, overrides?.configPath);
+
+  return {
+    binaryPath: resolveCodexBinaryPath(overrides?.binaryPath?.trim() || "codex"),
+    stateDir,
+    configPath,
+    defaultModel:
+      overrides?.defaultModel?.trim() ||
+      detectCodexDefaultModel(configPath) ||
+      null,
+  };
+};
+
+export const normalizeClaudeModelId = (modelId: string | null | undefined) => {
+  const normalized = modelId?.trim() ?? "";
+
+  if (!normalized) {
+    return null;
+  }
+
+  switch (normalized) {
+    case "claude-sonnet-4-20250514":
+      return "claude-sonnet-4-6";
+    case "claude-opus-4-20250514":
+      return "claude-opus-4-6";
+    default:
+      return normalized;
+  }
+};
+
+export const detectClaudeRuntimeConfig = (overrides?: {
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  defaultModel?: string | null;
+}) => {
+  const stateDir = resolveClaudeStateDir(overrides?.stateDir);
+  const configPath = resolveClaudeConfigPath(stateDir, overrides?.configPath);
+
+  return {
+    binaryPath: resolveClaudeBinaryPath(
+      overrides?.binaryPath?.trim() || "claude"
+    ),
+    stateDir,
+    configPath,
+    defaultModel:
+      normalizeClaudeModelId(overrides?.defaultModel) ||
+      normalizeClaudeModelId(detectClaudeDefaultModel(configPath)) ||
+      "claude-sonnet-4-6",
+  };
+};
+
+const detectCodexDefaultModel = (configPath: string) => {
+  if (!existsSync(configPath)) {
+    return null;
+  }
+
+  try {
+    const raw = readFileSync(configPath, "utf8");
+    const match = raw.match(/^\s*model\s*=\s*"([^"]+)"/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
+};
+
+const detectClaudeDefaultModel = (configPath: string) => {
+  if (!existsSync(configPath)) {
+    return null;
+  }
+
+  try {
+    const raw = readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const candidate =
+      parsed.defaultModel ??
+      parsed.model ??
+      parsed.preferredModel ??
+      parsed.primaryModel;
+
+    return typeof candidate === "string" && candidate.trim()
+      ? normalizeClaudeModelId(candidate)
+      : null;
+  } catch {
+    return null;
+  }
 };
 
 const envSchema = z.object({
@@ -91,6 +257,14 @@ const envSchema = z.object({
   OPENCLAW_STATE_DIR: z.string().optional(),
   OPENCLAW_GATEWAY_URL: z.string().optional(),
   OPENCLAW_GATEWAY_TOKEN: z.string().optional(),
+  CODEX_BINARY_PATH: z.string().default("codex"),
+  CODEX_CONFIG_PATH: z.string().optional(),
+  CODEX_STATE_DIR: z.string().optional(),
+  CODEX_DEFAULT_MODEL: z.string().optional(),
+  CLAUDE_BINARY_PATH: z.string().default("claude"),
+  CLAUDE_CONFIG_PATH: z.string().optional(),
+  CLAUDE_STATE_DIR: z.string().optional(),
+  CLAUDE_DEFAULT_MODEL: z.string().optional(),
   NOVA_ENABLE_OPENCLAW_SMOKE: z
     .string()
     .optional()
@@ -108,12 +282,33 @@ export const loadEnv = (overrides: Partial<NodeJS.ProcessEnv> = {}) => {
   const appDataDir = resolve(
     parsed.NOVA_APP_DATA_DIR ?? resolve(repoRoot, ".nova-data")
   );
-  const openClawStateDir = resolve(
-    parsed.OPENCLAW_STATE_DIR ?? resolve(homedir(), ".openclaw")
+  const openClawStateDir = resolveOpenClawStateDir(parsed.OPENCLAW_STATE_DIR);
+  const openClawConfigPath = resolveOpenClawConfigPath(
+    openClawStateDir,
+    parsed.OPENCLAW_CONFIG_PATH
   );
-  const openClawConfigPath = resolve(
-    parsed.OPENCLAW_CONFIG_PATH ?? resolve(openClawStateDir, "openclaw.json")
+  const codexStateDir = resolveCodexStateDir(parsed.CODEX_STATE_DIR);
+  const codexConfigPath = resolveCodexConfigPath(
+    codexStateDir,
+    parsed.CODEX_CONFIG_PATH
   );
+  const claudeStateDir = resolveClaudeStateDir(parsed.CLAUDE_STATE_DIR);
+  const claudeConfigPath = resolveClaudeConfigPath(
+    claudeStateDir,
+    parsed.CLAUDE_CONFIG_PATH
+  );
+  const detectedCodexDefaultModel = detectCodexRuntimeConfig({
+    binaryPath: parsed.CODEX_BINARY_PATH,
+    stateDir: codexStateDir,
+    configPath: codexConfigPath,
+    defaultModel: parsed.CODEX_DEFAULT_MODEL,
+  }).defaultModel;
+  const detectedClaudeDefaultModel = detectClaudeRuntimeConfig({
+    binaryPath: parsed.CLAUDE_BINARY_PATH,
+    stateDir: claudeStateDir,
+    configPath: claudeConfigPath,
+    defaultModel: parsed.CLAUDE_DEFAULT_MODEL,
+  }).defaultModel;
 
   return {
     host: parsed.HOST,
@@ -133,6 +328,14 @@ export const loadEnv = (overrides: Partial<NodeJS.ProcessEnv> = {}) => {
     openclawStateDir: openClawStateDir,
     openclawGatewayUrl: parsed.OPENCLAW_GATEWAY_URL ?? null,
     openclawGatewayToken: parsed.OPENCLAW_GATEWAY_TOKEN ?? null,
+    codexBinaryPath: resolveCodexBinaryPath(parsed.CODEX_BINARY_PATH),
+    codexConfigPath,
+    codexStateDir,
+    codexDefaultModel: detectedCodexDefaultModel,
+    claudeBinaryPath: resolveClaudeBinaryPath(parsed.CLAUDE_BINARY_PATH),
+    claudeConfigPath,
+    claudeStateDir,
+    claudeDefaultModel: detectedClaudeDefaultModel,
     enableOpenClawSmoke: parsed.NOVA_ENABLE_OPENCLAW_SMOKE,
   };
 };

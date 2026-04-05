@@ -19,7 +19,7 @@ export function AgentFleetStats({ agents }: { agents: RegisteredAgent[] }) {
   const offline = agents.filter((a) => a.status === "offline").length;
 
   const stats: FleetStat[] = [
-    { label: "Total Deployed", value: agents.length, icon: "groups", color: "border-primary", iconColor: "text-primary" },
+    { label: "Total Agents", value: agents.length, icon: "groups", color: "border-primary", iconColor: "text-primary" },
     { label: "Working", value: working, icon: "play_circle", color: "border-tertiary", iconColor: "text-tertiary" },
     { label: "Idle", value: idle, icon: "pause_circle", color: "border-secondary", iconColor: "text-secondary" },
     { label: "Errors", value: errors, icon: "error", color: "border-error", iconColor: "text-error" },

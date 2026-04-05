@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
+import { execFile } from "node:child_process";
 import { access, copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
+import { promisify } from "node:util";
 import {
   and,
   desc,
@@ -18,6 +20,7 @@ import {
   runEvents,
   settings,
   taskAttachments,
+  taskCommentAttachments,
   taskComments,
   taskDependencies,
   taskRuns,
@@ -25,6 +28,11 @@ import {
   type AppDatabase,
 } from "@nova/db";
 import type { RuntimeEvent } from "@nova/runtime-adapter";
+import {
+  MAX_TASK_ATTACHMENT_BYTES,
+  TASK_ATTACHMENT_ALLOWED_EXTENSIONS,
+  isAllowedTaskAttachment,
+} from "@nova/shared";
 import type {
   ActiveRunView,
   AgentRecord,
@@ -42,6 +50,7 @@ import type {
   RuntimeKind,
   RunStatus,
   TaskAttachmentRecord,
+  TaskCommentAttachmentRecord,
   TaskCommentRecord,
   TaskPriority,
   TaskRecord,
@@ -49,7 +58,22 @@ import type {
   TaskStatus,
   ThinkingLevel,
 } from "@nova/shared";
-import type { AppEnv } from "../env.js";
+import {
+  detectClaudeRuntimeConfig,
+  detectCodexRuntimeConfig,
+  detectOpenClawRuntimeConfig,
+  normalizeClaudeModelId,
+  resolveClaudeBinaryPath,
+  resolveClaudeConfigPath,
+  resolveClaudeStateDir,
+  resolveCodexBinaryPath,
+  resolveCodexConfigPath,
+  resolveCodexStateDir,
+  resolveOpenClawBinaryPath,
+  resolveOpenClawConfigPath,
+  resolveOpenClawStateDir,
+  type AppEnv,
+} from "../env.js";
 import {
   badRequest,
   conflict,
@@ -67,11 +91,17 @@ import {
   sanitizeFileName,
 } from "../lib/paths.js";
 import { humanizeAgentOperatorMessage } from "../lib/agent-operator-message.js";
+import { buildBranchUrl, buildTaskBranchName } from "../lib/task-branch.js";
 import { ACTIVE_RUN_STATUSES, canManuallyTransitionTask } from "../lib/task-state.js";
-import { buildRuntimePrompt, buildTaskFile } from "../lib/task-file.js";
+import { buildAgentContextFile, buildRuntimePrompt, buildTaskFile } from "../lib/task-file.js";
 import { generateId, nowIso, parseJsonText, slugify, stringifyJson } from "../lib/utils.js";
+import { ClaudeProcessManager } from "./runtime/ClaudeProcessManager.js";
+import { CodexProcessManager } from "./runtime/CodexProcessManager.js";
 import type { RuntimeManager } from "./runtime/RuntimeManager.js";
+import { OpenClawProcessManager } from "./runtime/OpenClawProcessManager.js";
 import type { WebsocketHub } from "./websocket/WebsocketHub.js";
+
+const execFileAsync = promisify(execFile);
 
 type CreateProjectInput = {
   name: string;
@@ -110,6 +140,16 @@ type CreateAgentInput = {
   };
 };
 
+type ImportOpenClawAgentInput = Omit<CreateAgentInput, "runtime"> & {
+  runtime: {
+    runtimeAgentId: string;
+    defaultModelId?: string | null;
+    modelOverrideAllowed?: boolean;
+    sandboxMode?: "off" | "docker" | "other";
+    defaultThinkingLevel?: ThinkingLevel;
+  };
+};
+
 type PatchAgentInput = Omit<Partial<CreateAgentInput>, "runtime"> & {
   runtime?: Partial<NonNullable<CreateAgentInput["runtime"]>>;
   status?: "idle" | "working" | "paused" | "error" | "offline";
@@ -135,6 +175,8 @@ type AddCommentInput = {
   authorType?: "user" | "agent" | "system";
   authorId?: string | null;
   body: string;
+  attachments?: CommentAttachmentInput[];
+  thinkingLevel?: ThinkingLevel | null;
 };
 
 type CreateCommentRecordInput = {
@@ -155,6 +197,12 @@ type SaveAttachmentInput = {
   buffer: Buffer;
 };
 
+type CommentAttachmentInput = {
+  fileName: string;
+  mimeType: string;
+  buffer: Buffer;
+};
+
 type AgentRuntimeCheckpointInput = {
   state: "working" | "blocked" | "needs_input";
   summary: string;
@@ -168,12 +216,41 @@ type AgentRuntimeArtifactInput = {
   summary?: string | null;
 };
 
+type OpenClawRuntimeConfigInput = {
+  profile: string;
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  gatewayUrl?: string | null;
+};
+
+type CodexRuntimeConfigInput = {
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  defaultModel?: string | null;
+};
+
+type ClaudeRuntimeConfigInput = {
+  binaryPath?: string | null;
+  stateDir?: string | null;
+  configPath?: string | null;
+  defaultModel?: string | null;
+};
+
 type ActiveSubscription = {
   runId: string;
   runtimeSessionKey: string;
+  runtimeKind: RuntimeKind;
   nextSeq: number;
   queue: Promise<void>;
   unsubscribe: (() => Promise<void>) | null;
+};
+
+type TaskGitContext = {
+  repoRoot: string | null;
+  branchName: string | null;
+  branchUrl: string | null;
 };
 
 type RunBridgeTokenRecord = {
@@ -183,6 +260,15 @@ type RunBridgeTokenRecord = {
   agentId: string;
   createdAt: string;
 };
+
+type MentionedAgentResolution = {
+  status: "none" | "resolved" | "unknown" | "ambiguous";
+  token: string | null;
+  agent: typeof agents.$inferSelect | null;
+  message: string | null;
+};
+
+type SettingsRow = typeof settings.$inferSelect;
 
 const RUN_BRIDGE_TOKEN_TTL_MS = 15 * 60 * 1000;
 
@@ -215,6 +301,8 @@ export class NovaService {
       mkdir(this.#env.agentHomesDir, { recursive: true }),
     ]);
 
+    await this.#ensureSettingsSchemaColumns();
+
     const existingSettings = await this.#db.select().from(settings).get();
 
     if (!existingSettings) {
@@ -224,8 +312,22 @@ export class NovaService {
         .values({
           id: "local",
           mode: "local",
+          runtimeMode: this.#env.runtimeMode,
+          openclawEnabled: true,
           openclawProfile: this.#env.openclawProfile,
           openclawBinaryPath: this.#env.openclawBinaryPath,
+          openclawConfigPath: this.#env.openclawConfigPath,
+          openclawStateDir: this.#env.openclawStateDir,
+          codexEnabled: true,
+          codexBinaryPath: this.#env.codexBinaryPath,
+          codexConfigPath: this.#env.codexConfigPath,
+          codexStateDir: this.#env.codexStateDir,
+          codexDefaultModel: this.#env.codexDefaultModel,
+          claudeEnabled: true,
+          claudeBinaryPath: this.#env.claudeBinaryPath,
+          claudeConfigPath: this.#env.claudeConfigPath,
+          claudeStateDir: this.#env.claudeStateDir,
+          claudeDefaultModel: this.#env.claudeDefaultModel,
           gatewayUrl: this.#env.openclawGatewayUrl,
           gatewayAuthMode: "server-only",
           gatewayTokenEncrypted: null,
@@ -234,9 +336,33 @@ export class NovaService {
           updatedAt: now,
         })
         .run();
+    } else {
+      const persistedSettings = await this.#ensureRuntimeSettingsDefaults(existingSettings);
+      this.#applyPersistedRuntimeSettings(persistedSettings);
     }
 
     await this.#reconcileIncompleteRuns();
+  }
+
+  async #ensureSettingsSchemaColumns() {
+    const statements = [
+      "ALTER TABLE settings ADD COLUMN openclaw_enabled integer DEFAULT 1 NOT NULL",
+      "ALTER TABLE settings ADD COLUMN codex_enabled integer DEFAULT 1 NOT NULL",
+      "ALTER TABLE settings ADD COLUMN claude_enabled integer DEFAULT 1 NOT NULL",
+    ];
+
+    for (const statement of statements) {
+      try {
+        await this.#db.run(sql.raw(statement));
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          !error.message.toLowerCase().includes("duplicate column")
+        ) {
+          throw error;
+        }
+      }
+    }
   }
 
   async close() {
@@ -268,6 +394,349 @@ export class NovaService {
     return this.#runtimeManager.getOpenClawCatalog();
   }
 
+  async getOpenClawConfig() {
+    const settingsRow = await this.#getSettingsRow();
+    const persisted = await this.#ensureRuntimeSettingsDefaults(settingsRow);
+    this.#applyPersistedRuntimeSettings(persisted);
+
+    return {
+      enabled: persisted.openclawEnabled,
+      current: this.#serializeOpenClawConfigCurrent(),
+      detected: this.#serializeDetectedOpenClawConfig(),
+      health: await this.#runtimeManager.getHealth(),
+    };
+  }
+
+  async testOpenClawConfig(input: OpenClawRuntimeConfigInput) {
+    const resolved = this.#resolveOpenClawRuntimeConfig(input);
+    const probeEnv: AppEnv = {
+      ...this.#env,
+      runtimeMode: "openclaw",
+      openclawProfile: resolved.profile,
+      openclawBinaryPath: resolved.binaryPath,
+      openclawStateDir: resolved.stateDir,
+      openclawConfigPath: resolved.configPath,
+      openclawGatewayUrl: resolved.gatewayUrl,
+    };
+
+    const probeManager = new OpenClawProcessManager(probeEnv);
+    const health = await probeManager.getHealth();
+
+    return {
+      enabled: true,
+      current: {
+        runtimeMode: "openclaw" as const,
+        profile: resolved.profile,
+        binaryPath: resolved.binaryPath,
+        stateDir: resolved.stateDir,
+        configPath: resolved.configPath,
+        gatewayUrl: resolved.gatewayUrl,
+      },
+      detected: this.#serializeDetectedOpenClawConfig(),
+      health,
+    };
+  }
+
+  async updateOpenClawConfig(input: OpenClawRuntimeConfigInput) {
+    const resolved = this.#resolveOpenClawRuntimeConfig(input);
+    const now = nowIso();
+
+    await this.#db
+      .update(settings)
+      .set({
+        runtimeMode: "openclaw",
+        openclawProfile: resolved.profile,
+        openclawBinaryPath: resolved.binaryPath,
+        openclawConfigPath: resolved.configPath,
+        openclawStateDir: resolved.stateDir,
+        gatewayUrl: resolved.gatewayUrl,
+        updatedAt: now,
+      })
+      .where(eq(settings.id, "local"))
+      .run();
+
+    this.#applyPersistedRuntimeSettings({
+      ...(await this.#getSettingsRow()),
+      runtimeMode: "openclaw",
+      openclawProfile: resolved.profile,
+      openclawBinaryPath: resolved.binaryPath,
+      openclawConfigPath: resolved.configPath,
+      openclawStateDir: resolved.stateDir,
+      gatewayUrl: resolved.gatewayUrl,
+    });
+
+    await this.#runtimeManager.reconfigure();
+    const health = await this.#runtimeManager.restart();
+
+    this.#websocketHub.broadcast("runtime.health", health);
+
+    return {
+      enabled: (await this.#getSettingsRow()).openclawEnabled,
+      current: this.#serializeOpenClawConfigCurrent(),
+      detected: this.#serializeDetectedOpenClawConfig(),
+      health,
+    };
+  }
+
+  async setOpenClawEnabled(enabled: boolean) {
+    const now = nowIso();
+
+    await this.#db
+      .update(settings)
+      .set({
+        openclawEnabled: enabled,
+        updatedAt: now,
+      })
+      .where(eq(settings.id, "local"))
+      .run();
+
+    const persisted = await this.#getSettingsRow();
+    this.#applyPersistedRuntimeSettings(persisted);
+
+    return {
+      enabled: persisted.openclawEnabled,
+      current: this.#serializeOpenClawConfigCurrent(),
+      detected: this.#serializeDetectedOpenClawConfig(),
+      health: await this.#runtimeManager.getHealth(),
+    };
+  }
+
+  async getCodexConfig() {
+    const settingsRow = await this.#getSettingsRow();
+    const persisted = await this.#ensureRuntimeSettingsDefaults(settingsRow);
+    this.#applyPersistedRuntimeSettings(persisted);
+    const health = await this.#runtimeManager.getCodexHealth();
+    const login = await this.#runtimeManager.getCodexLogin();
+
+    return {
+      enabled: persisted.codexEnabled,
+      current: this.#serializeCodexConfigCurrent(),
+      detected: this.#serializeDetectedCodexConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async getCodexCatalog() {
+    return this.#runtimeManager.getCodexCatalog();
+  }
+
+  async getClaudeConfig() {
+    const settingsRow = await this.#getSettingsRow();
+    const persisted = await this.#ensureRuntimeSettingsDefaults(settingsRow);
+    this.#applyPersistedRuntimeSettings(persisted);
+    const health = await this.#runtimeManager.getClaudeHealth();
+    const login = await this.#runtimeManager.getClaudeLogin();
+
+    return {
+      enabled: persisted.claudeEnabled,
+      current: this.#serializeClaudeConfigCurrent(),
+      detected: this.#serializeDetectedClaudeConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async getClaudeCatalog() {
+    return this.#runtimeManager.getClaudeCatalog();
+  }
+
+  async testCodexConfig(input: CodexRuntimeConfigInput) {
+    const resolved = this.#resolveCodexRuntimeConfig(input);
+    const probeEnv: AppEnv = {
+      ...this.#env,
+      codexBinaryPath: resolved.binaryPath,
+      codexStateDir: resolved.stateDir,
+      codexConfigPath: resolved.configPath,
+      codexDefaultModel: resolved.defaultModel,
+    };
+    const probeManager = new CodexProcessManager(probeEnv);
+    const [health, login] = await Promise.all([
+      probeManager.getHealth(),
+      probeManager.getLoginSummary(),
+    ]);
+
+    return {
+      enabled: true,
+      current: {
+        binaryPath: resolved.binaryPath,
+        stateDir: resolved.stateDir,
+        configPath: resolved.configPath,
+        defaultModel: resolved.defaultModel,
+      },
+      detected: this.#serializeDetectedCodexConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async updateCodexConfig(input: CodexRuntimeConfigInput) {
+    const resolved = this.#resolveCodexRuntimeConfig(input);
+    const now = nowIso();
+
+    await this.#db
+      .update(settings)
+      .set({
+        codexBinaryPath: resolved.binaryPath,
+        codexConfigPath: resolved.configPath,
+        codexStateDir: resolved.stateDir,
+        codexDefaultModel: resolved.defaultModel,
+        updatedAt: now,
+      })
+      .where(eq(settings.id, "local"))
+      .run();
+
+    this.#applyPersistedRuntimeSettings({
+      ...(await this.#getSettingsRow()),
+      codexBinaryPath: resolved.binaryPath,
+      codexConfigPath: resolved.configPath,
+      codexStateDir: resolved.stateDir,
+      codexDefaultModel: resolved.defaultModel,
+    });
+
+    await this.#runtimeManager.reconfigure();
+
+    const [health, login] = await Promise.all([
+      this.#runtimeManager.getCodexHealth(),
+      this.#runtimeManager.getCodexLogin(),
+    ]);
+    this.#websocketHub.broadcast("runtime.health", health);
+
+    return {
+      enabled: (await this.#getSettingsRow()).codexEnabled,
+      current: this.#serializeCodexConfigCurrent(),
+      detected: this.#serializeDetectedCodexConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async setCodexEnabled(enabled: boolean) {
+    const now = nowIso();
+
+    await this.#db
+      .update(settings)
+      .set({
+        codexEnabled: enabled,
+        updatedAt: now,
+      })
+      .where(eq(settings.id, "local"))
+      .run();
+
+    const persisted = await this.#getSettingsRow();
+    this.#applyPersistedRuntimeSettings(persisted);
+    const [health, login] = await Promise.all([
+      this.#runtimeManager.getCodexHealth(),
+      this.#runtimeManager.getCodexLogin(),
+    ]);
+
+    return {
+      enabled: persisted.codexEnabled,
+      current: this.#serializeCodexConfigCurrent(),
+      detected: this.#serializeDetectedCodexConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async testClaudeConfig(input: ClaudeRuntimeConfigInput) {
+    const resolved = this.#resolveClaudeRuntimeConfig(input);
+    const probeEnv: AppEnv = {
+      ...this.#env,
+      claudeBinaryPath: resolved.binaryPath,
+      claudeStateDir: resolved.stateDir,
+      claudeConfigPath: resolved.configPath,
+      claudeDefaultModel: resolved.defaultModel,
+    };
+    const probeManager = new ClaudeProcessManager(probeEnv);
+    const [health, login] = await Promise.all([
+      probeManager.getHealth(),
+      probeManager.getLoginSummary(),
+    ]);
+
+    return {
+      enabled: true,
+      current: {
+        binaryPath: resolved.binaryPath,
+        stateDir: resolved.stateDir,
+        configPath: resolved.configPath,
+        defaultModel: resolved.defaultModel,
+      },
+      detected: this.#serializeDetectedClaudeConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async updateClaudeConfig(input: ClaudeRuntimeConfigInput) {
+    const resolved = this.#resolveClaudeRuntimeConfig(input);
+    const now = nowIso();
+
+    await this.#db
+      .update(settings)
+      .set({
+        claudeBinaryPath: resolved.binaryPath,
+        claudeConfigPath: resolved.configPath,
+        claudeStateDir: resolved.stateDir,
+        claudeDefaultModel: resolved.defaultModel,
+        updatedAt: now,
+      })
+      .where(eq(settings.id, "local"))
+      .run();
+
+    this.#applyPersistedRuntimeSettings({
+      ...(await this.#getSettingsRow()),
+      claudeBinaryPath: resolved.binaryPath,
+      claudeConfigPath: resolved.configPath,
+      claudeStateDir: resolved.stateDir,
+      claudeDefaultModel: resolved.defaultModel,
+    });
+
+    await this.#runtimeManager.reconfigure();
+
+    const [health, login] = await Promise.all([
+      this.#runtimeManager.getClaudeHealth(),
+      this.#runtimeManager.getClaudeLogin(),
+    ]);
+    this.#websocketHub.broadcast("runtime.health", health);
+
+    return {
+      enabled: (await this.#getSettingsRow()).claudeEnabled,
+      current: this.#serializeClaudeConfigCurrent(),
+      detected: this.#serializeDetectedClaudeConfig(),
+      auth: login,
+      health,
+    };
+  }
+
+  async setClaudeEnabled(enabled: boolean) {
+    const now = nowIso();
+
+    await this.#db
+      .update(settings)
+      .set({
+        claudeEnabled: enabled,
+        updatedAt: now,
+      })
+      .where(eq(settings.id, "local"))
+      .run();
+
+    const persisted = await this.#getSettingsRow();
+    this.#applyPersistedRuntimeSettings(persisted);
+    const [health, login] = await Promise.all([
+      this.#runtimeManager.getClaudeHealth(),
+      this.#runtimeManager.getClaudeLogin(),
+    ]);
+
+    return {
+      enabled: persisted.claudeEnabled,
+      current: this.#serializeClaudeConfigCurrent(),
+      detected: this.#serializeDetectedClaudeConfig(),
+      auth: login,
+      health,
+    };
+  }
+
   async setupRuntime() {
     const health = await this.#runtimeManager.setup();
     this.#websocketHub.broadcast("runtime.health", health);
@@ -278,6 +747,215 @@ export class NovaService {
     const health = await this.#runtimeManager.restart();
     this.#websocketHub.broadcast("runtime.health", health);
     return health;
+  }
+
+  async #getSettingsRow() {
+    const row = await this.#db.select().from(settings).get();
+
+    if (!row) {
+      throw notFound("Runtime settings are not initialized.");
+    }
+
+    return row;
+  }
+
+  async #ensureRuntimeSettingsDefaults(row: SettingsRow) {
+    const patch: Partial<SettingsRow> = {};
+
+    if (
+      !row.runtimeMode ||
+      ((row.openclawConfigPath === "" || row.openclawStateDir === "") &&
+        row.runtimeMode === "mock" &&
+        this.#env.runtimeMode !== "mock")
+    ) {
+      patch.runtimeMode = this.#env.runtimeMode;
+    }
+
+    if (!row.openclawConfigPath) {
+      patch.openclawConfigPath = this.#env.openclawConfigPath;
+    }
+
+    if (!row.openclawStateDir) {
+      patch.openclawStateDir = this.#env.openclawStateDir;
+    }
+
+    if (!row.codexBinaryPath) {
+      patch.codexBinaryPath = this.#env.codexBinaryPath;
+    }
+
+    if (!row.codexConfigPath) {
+      patch.codexConfigPath = this.#env.codexConfigPath;
+    }
+
+    if (!row.codexStateDir) {
+      patch.codexStateDir = this.#env.codexStateDir;
+    }
+
+    if (row.codexDefaultModel == null && this.#env.codexDefaultModel) {
+      patch.codexDefaultModel = this.#env.codexDefaultModel;
+    }
+
+    if (!row.claudeBinaryPath) {
+      patch.claudeBinaryPath = this.#env.claudeBinaryPath;
+    }
+
+    if (!row.claudeConfigPath) {
+      patch.claudeConfigPath = this.#env.claudeConfigPath;
+    }
+
+    if (!row.claudeStateDir) {
+      patch.claudeStateDir = this.#env.claudeStateDir;
+    }
+
+    const normalizedClaudeDefaultModel = normalizeClaudeModelId(
+      row.claudeDefaultModel ?? this.#env.claudeDefaultModel
+    );
+
+    if (normalizedClaudeDefaultModel && row.claudeDefaultModel !== normalizedClaudeDefaultModel) {
+      patch.claudeDefaultModel = normalizedClaudeDefaultModel;
+    } else if (row.claudeDefaultModel == null && this.#env.claudeDefaultModel) {
+      patch.claudeDefaultModel = this.#env.claudeDefaultModel;
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return row;
+    }
+
+    const updatedAt = nowIso();
+    await this.#db
+      .update(settings)
+      .set({
+        ...patch,
+        updatedAt,
+      })
+      .where(eq(settings.id, row.id))
+      .run();
+
+    return {
+      ...row,
+      ...patch,
+      updatedAt,
+    };
+  }
+
+  #applyPersistedRuntimeSettings(row: Pick<
+    SettingsRow,
+    | "runtimeMode"
+    | "openclawProfile"
+    | "openclawBinaryPath"
+    | "openclawConfigPath"
+    | "openclawStateDir"
+    | "codexBinaryPath"
+    | "codexConfigPath"
+    | "codexStateDir"
+    | "codexDefaultModel"
+    | "claudeBinaryPath"
+    | "claudeConfigPath"
+    | "claudeStateDir"
+    | "claudeDefaultModel"
+    | "gatewayUrl"
+  >) {
+    this.#env.runtimeMode = row.runtimeMode;
+    this.#env.openclawProfile = row.openclawProfile;
+    this.#env.openclawBinaryPath = row.openclawBinaryPath;
+    this.#env.openclawConfigPath = row.openclawConfigPath;
+    this.#env.openclawStateDir = row.openclawStateDir;
+    this.#env.openclawGatewayUrl = row.gatewayUrl;
+    this.#env.codexBinaryPath = row.codexBinaryPath;
+    this.#env.codexConfigPath = row.codexConfigPath;
+    this.#env.codexStateDir = row.codexStateDir;
+    this.#env.codexDefaultModel = row.codexDefaultModel;
+    this.#env.claudeBinaryPath = row.claudeBinaryPath;
+    this.#env.claudeConfigPath = row.claudeConfigPath;
+    this.#env.claudeStateDir = row.claudeStateDir;
+    this.#env.claudeDefaultModel =
+      normalizeClaudeModelId(row.claudeDefaultModel) ??
+      detectClaudeRuntimeConfig().defaultModel;
+  }
+
+  #serializeOpenClawConfigCurrent() {
+    return {
+      runtimeMode: this.#env.runtimeMode,
+      profile: this.#env.openclawProfile,
+      binaryPath: this.#env.openclawBinaryPath,
+      stateDir: this.#env.openclawStateDir,
+      configPath: this.#env.openclawConfigPath,
+      gatewayUrl: this.#env.openclawGatewayUrl,
+    };
+  }
+
+  #serializeDetectedOpenClawConfig() {
+    return detectOpenClawRuntimeConfig();
+  }
+
+  #serializeCodexConfigCurrent() {
+    return {
+      binaryPath: this.#env.codexBinaryPath,
+      stateDir: this.#env.codexStateDir,
+      configPath: this.#env.codexConfigPath,
+      defaultModel: this.#env.codexDefaultModel,
+    };
+  }
+
+  #serializeDetectedCodexConfig() {
+    return detectCodexRuntimeConfig({
+      defaultModel: this.#env.codexDefaultModel,
+    });
+  }
+
+  #serializeClaudeConfigCurrent() {
+    return {
+      binaryPath: this.#env.claudeBinaryPath,
+      stateDir: this.#env.claudeStateDir,
+      configPath: this.#env.claudeConfigPath,
+      defaultModel: this.#env.claudeDefaultModel,
+    };
+  }
+
+  #serializeDetectedClaudeConfig() {
+    return detectClaudeRuntimeConfig({
+      defaultModel: this.#env.claudeDefaultModel,
+    });
+  }
+
+  #resolveOpenClawRuntimeConfig(input: OpenClawRuntimeConfigInput) {
+    const profile = input.profile.trim() || "apm";
+    const stateDir = resolveOpenClawStateDir(input.stateDir);
+    const configPath = resolveOpenClawConfigPath(stateDir, input.configPath);
+
+    return {
+      profile,
+      binaryPath: resolveOpenClawBinaryPath(input.binaryPath?.trim() || "openclaw"),
+      stateDir,
+      configPath,
+      gatewayUrl: input.gatewayUrl?.trim() || null,
+    };
+  }
+
+  #resolveCodexRuntimeConfig(input: CodexRuntimeConfigInput) {
+    const stateDir = resolveCodexStateDir(input.stateDir);
+    const configPath = resolveCodexConfigPath(stateDir, input.configPath);
+
+    return {
+      binaryPath: resolveCodexBinaryPath(input.binaryPath?.trim() || "codex"),
+      stateDir,
+      configPath,
+      defaultModel: input.defaultModel?.trim() || null,
+    };
+  }
+
+  #resolveClaudeRuntimeConfig(input: ClaudeRuntimeConfigInput) {
+    const stateDir = resolveClaudeStateDir(input.stateDir);
+    const configPath = resolveClaudeConfigPath(stateDir, input.configPath);
+
+    return {
+      binaryPath: resolveClaudeBinaryPath(input.binaryPath?.trim() || "claude"),
+      stateDir,
+      configPath,
+      defaultModel:
+        normalizeClaudeModelId(input.defaultModel) ||
+        detectClaudeRuntimeConfig().defaultModel,
+    };
   }
 
   async listProjects() {
@@ -766,9 +1444,11 @@ export class NovaService {
         .where(eq(projectAgents.agentId, agentId))
         .all()
     ).map((project) => project.projectId);
+    const workspaceTextFields = await this.#loadAgentWorkspaceTextFields(row);
 
     return {
       ...this.#serializeAgentResponse(row),
+      ...workspaceTextFields,
       projectIds,
     };
   }
@@ -783,25 +1463,51 @@ export class NovaService {
     const id = generateId();
     const now = nowIso();
     const runtimeKind = input.runtime?.kind ?? "openclaw-native";
+    await this.#assertRuntimeEnabled(runtimeKind);
     const runtimeAgentId = input.runtime?.runtimeAgentId?.trim() || slug;
-    const runtimeDefaults = this.#buildOpenClawRuntimeDefaults(runtimeAgentId);
+    const runtimeDefaults =
+      runtimeKind === "codex"
+        ? this.#buildCodexRuntimeDefaults(runtimeAgentId)
+        : runtimeKind === "claude-code"
+          ? this.#buildClaudeRuntimeDefaults(runtimeAgentId)
+        : this.#buildOpenClawRuntimeDefaults(runtimeAgentId);
     const workspacePath =
       input.runtime?.workspacePath?.trim() || runtimeDefaults.workspacePath;
     const runtimeStatePath =
       input.runtime?.runtimeStatePath?.trim() || runtimeDefaults.runtimeStatePath;
     const adapter = this.#runtimeManager.getAdapter(runtimeKind);
     const runtimeCatalog = await adapter.getCatalog();
+    const runtimeLabel = this.#runtimeLabel(runtimeKind);
 
     if (!runtimeCatalog.available) {
-      throw serviceUnavailable("OpenClaw runtime is not available.", runtimeCatalog.health);
+      throw serviceUnavailable(
+        `${runtimeLabel} runtime is not available.`,
+        runtimeCatalog.health
+      );
+    }
+
+    const existingNovaAgent = await this.#db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.runtimeKind, runtimeKind),
+          eq(agents.runtimeAgentId, runtimeAgentId)
+        )
+      )
+      .get();
+
+    if (existingNovaAgent) {
+      throw conflict(`${runtimeLabel} agent "${runtimeAgentId}" already exists.`);
     }
 
     if (
+      runtimeKind === "openclaw-native" &&
       runtimeCatalog.existingAgents.some(
         (runtimeAgent) => runtimeAgent.runtimeAgentId === runtimeAgentId
       )
     ) {
-      throw conflict(`OpenClaw agent "${runtimeAgentId}" already exists.`);
+      throw conflict(`${runtimeLabel} agent "${runtimeAgentId}" already exists.`);
     }
 
     const defaultModelId =
@@ -813,7 +1519,7 @@ export class NovaService {
       defaultModelId &&
       !runtimeCatalog.models.some((model) => model.id === defaultModelId && model.available)
     ) {
-      throw badRequest(`Model "${defaultModelId}" is not available in OpenClaw.`);
+      throw badRequest(`Model "${defaultModelId}" is not available in ${runtimeLabel}.`);
     }
 
     const { modelProvider, modelName } = this.#splitModelId(defaultModelId);
@@ -884,6 +1590,122 @@ export class NovaService {
     }
   }
 
+  async importOpenClawAgent(input: ImportOpenClawAgentInput) {
+    const slug = input.slug ? slugify(input.slug) : slugify(input.name);
+
+    if (!slug) {
+      throw badRequest("Agent slug could not be generated.");
+    }
+
+    await this.#assertRuntimeEnabled("openclaw-native");
+    const adapter = this.#runtimeManager.getAdapter("openclaw-native");
+    const runtimeCatalog = await adapter.getCatalog();
+
+    if (!runtimeCatalog.available) {
+      throw serviceUnavailable(
+        "OpenClaw runtime is not available.",
+        runtimeCatalog.health
+      );
+    }
+
+    const runtimeAgentId = input.runtime.runtimeAgentId.trim();
+
+    if (!runtimeAgentId) {
+      throw badRequest("Runtime agent ID is required.");
+    }
+
+    const existingRuntimeAgent = runtimeCatalog.existingAgents.find(
+      (runtimeAgent) => runtimeAgent.runtimeAgentId === runtimeAgentId
+    );
+
+    if (!existingRuntimeAgent) {
+      throw notFound(
+        `OpenClaw agent "${runtimeAgentId}" was not found in the local runtime catalog.`
+      );
+    }
+
+    const existingNovaAgent = await this.#db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(
+        and(
+          eq(agents.runtimeKind, "openclaw-native"),
+          eq(agents.runtimeAgentId, runtimeAgentId)
+        )
+      )
+      .get();
+
+    if (existingNovaAgent) {
+      throw conflict(`OpenClaw agent "${runtimeAgentId}" is already imported into Nova.`);
+    }
+
+    const defaultModelId =
+      input.runtime.defaultModelId?.trim() ||
+      existingRuntimeAgent.defaultModelId ||
+      runtimeCatalog.defaults.defaultModelId ||
+      null;
+
+    if (
+      defaultModelId &&
+      !runtimeCatalog.models.some((model) => model.id === defaultModelId && model.available)
+    ) {
+      throw badRequest(`Model "${defaultModelId}" is not available in OpenClaw.`);
+    }
+
+    const { modelProvider, modelName } = this.#splitModelId(defaultModelId);
+    const id = generateId();
+    const now = nowIso();
+    let inserted = false;
+
+    try {
+      await this.#db
+        .insert(agents)
+        .values({
+          id,
+          slug,
+          name: input.name.trim(),
+          avatar: input.avatar ?? null,
+          role: input.role.trim(),
+          systemInstructions: input.systemInstructions?.trim() ?? "",
+          personaText: input.personaText ?? null,
+          userContextText: input.userContextText ?? null,
+          identityText: input.identityText ?? null,
+          toolsText: input.toolsText ?? null,
+          heartbeatText: input.heartbeatText ?? null,
+          memoryText: input.memoryText ?? null,
+          runtimeKind: "openclaw-native",
+          runtimeAgentId,
+          agentHomePath: existingRuntimeAgent.workspacePath,
+          runtimeStatePath: existingRuntimeAgent.runtimeStatePath,
+          modelProvider,
+          modelName,
+          modelOverrideAllowed: input.runtime.modelOverrideAllowed ?? true,
+          sandboxMode: input.runtime.sandboxMode ?? "off",
+          defaultThinkingLevel: input.runtime.defaultThinkingLevel ?? "medium",
+          status: "idle",
+          currentTaskId: null,
+          lastSeenAt: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      inserted = true;
+
+      const row = await this.#getAgentRow(id);
+      await this.#syncAgentWorkspaceRow(row);
+
+      const agent = await this.getAgent(id);
+      this.#websocketHub.broadcast("agent.updated", agent);
+      return agent;
+    } catch (error) {
+      if (inserted) {
+        await this.#db.delete(agents).where(eq(agents.id, id)).run();
+      }
+
+      throw error;
+    }
+  }
+
   async patchAgent(agentId: string, patch: PatchAgentInput) {
     const current = await this.#getAgentRow(agentId);
     const adapter = this.#runtimeManager.getAdapter(current.runtimeKind);
@@ -928,8 +1750,14 @@ export class NovaService {
 
     if (defaultModelChanged && nextDefaultModelId) {
       const catalog = await adapter.getCatalog();
-      if (!catalog.models.some((model) => model.id === nextDefaultModelId && model.available)) {
-        throw badRequest(`Model "${nextDefaultModelId}" is not available in OpenClaw.`);
+      if (
+        !catalog.models.some((model) => model.id === nextDefaultModelId && model.available)
+      ) {
+        throw badRequest(
+          `Model "${nextDefaultModelId}" is not available in ${this.#runtimeLabel(
+            current.runtimeKind
+          )}.`
+        );
       }
     }
 
@@ -1382,34 +2210,46 @@ export class NovaService {
       .where(eq(taskComments.taskId, taskId))
       .orderBy(taskComments.createdAt)
       .all();
-    return rows.map((row) => this.#serializeComment(row));
+    return this.#serializeCommentRows(rows);
   }
 
   async addTaskComment(taskId: string, input: AddCommentInput) {
     const task = await this.#getTaskRow(taskId);
     const activeRun = await this.#getActiveRunForTask(taskId);
     const authorType = input.authorType ?? "user";
+    const body = input.body.trim();
+
+    if (!body && (!input.attachments || input.attachments.length === 0)) {
+      throw badRequest("Comment must include text or at least one attachment.");
+    }
+
     const comment = await this.#createTaskCommentRecord({
       taskId,
       taskRunId: activeRun?.id ?? null,
       authorType,
       authorId: input.authorId ?? null,
       source: authorType === "system" ? "system" : "ticket_user",
-      body: input.body.trim(),
+      body,
     });
 
-    if (authorType === "user" && activeRun) {
-      void this.#forwardCommentToActiveRun(taskId, comment, activeRun);
-    } else if (
-      authorType === "user" &&
-      !activeRun &&
-      (await this.#taskShouldAutoResume(task))
-    ) {
-      void this.#autoResumeTaskAfterComment(taskId);
+    if (input.attachments && input.attachments.length > 0) {
+      for (const attachment of input.attachments) {
+        await this.#saveTaskCommentAttachment({
+          taskId,
+          taskCommentId: comment.id,
+          ...attachment,
+        });
+      }
+    }
+
+    const hydratedComment = await this.#getTaskCommentById(comment.id);
+
+    if (authorType === "user") {
+      void this.#handleUserCommentIntent(task, hydratedComment, activeRun, input.thinkingLevel ?? null);
     }
 
     this.#websocketHub.broadcast("task.updated", await this.getTask(taskId));
-    return comment;
+    return hydratedComment;
   }
 
   async getTaskAttachments(taskId: string) {
@@ -1426,8 +2266,22 @@ export class NovaService {
   async saveTaskAttachment(input: SaveAttachmentInput) {
     await this.#getTaskRow(input.taskId);
 
-    if (input.buffer.byteLength > 25 * 1024 * 1024) {
+    if (input.buffer.byteLength > MAX_TASK_ATTACHMENT_BYTES) {
       throw badRequest("Attachment exceeds the 25 MB upload limit.");
+    }
+
+    if (!isAllowedTaskAttachment({
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+    })) {
+      throw badRequest(
+        "Unsupported attachment type. Use documents, images, or source files such as PDF, JSON, Markdown, HTML, CSS, JavaScript, Python, XML, DOC, DOCX, TXT, or common image formats.",
+        {
+          fileName: input.fileName,
+          mimeType: input.mimeType,
+          allowedExtensions: TASK_ATTACHMENT_ALLOWED_EXTENSIONS,
+        }
+      );
     }
 
     const id = generateId();
@@ -1468,7 +2322,115 @@ export class NovaService {
     return attachment;
   }
 
-  async startTask(taskId: string) {
+  async #getTaskCommentById(commentId: string) {
+    const row = await this.#db
+      .select()
+      .from(taskComments)
+      .where(eq(taskComments.id, commentId))
+      .get();
+
+    if (!row) {
+      throw notFound("Task comment was not found.");
+    }
+
+    return (await this.#serializeCommentRows([row]))[0];
+  }
+
+  async #getTaskCommentAttachments(commentId: string) {
+    const rows = await this.#db
+      .select()
+      .from(taskCommentAttachments)
+      .where(eq(taskCommentAttachments.taskCommentId, commentId))
+      .orderBy(taskCommentAttachments.createdAt)
+      .all();
+
+    return rows.map((row) => this.#serializeCommentAttachment(row));
+  }
+
+  async #saveTaskCommentAttachment(input: {
+    taskId: string;
+    taskCommentId: string;
+    fileName: string;
+    mimeType: string;
+    buffer: Buffer;
+  }) {
+    if (input.buffer.byteLength > MAX_TASK_ATTACHMENT_BYTES) {
+      throw badRequest("Attachment exceeds the 25 MB upload limit.");
+    }
+
+    if (
+      !isAllowedTaskAttachment({
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+      })
+    ) {
+      throw badRequest(
+        "Unsupported attachment type. Use documents, images, or source files such as PDF, JSON, Markdown, HTML, CSS, JavaScript, Python, XML, DOC, DOCX, TXT, or common image formats.",
+        {
+          fileName: input.fileName,
+          mimeType: input.mimeType,
+          allowedExtensions: TASK_ATTACHMENT_ALLOWED_EXTENSIONS,
+        }
+      );
+    }
+
+    const id = generateId();
+    const fileName = sanitizeFileName(input.fileName);
+    const relativeStoragePath = `${input.taskId}/comments/${input.taskCommentId}/${id}-${fileName}`;
+    const absoluteStoragePath = `${this.#env.attachmentsDir}/${relativeStoragePath}`;
+    const sha256 = createHash("sha256").update(input.buffer).digest("hex");
+
+    await mkdir(dirname(absoluteStoragePath), { recursive: true });
+    await writeFile(absoluteStoragePath, input.buffer);
+
+    await this.#db
+      .insert(taskCommentAttachments)
+      .values({
+        id,
+        taskId: input.taskId,
+        taskCommentId: input.taskCommentId,
+        fileName,
+        mimeType: input.mimeType,
+        relativeStoragePath,
+        sha256,
+        sizeBytes: input.buffer.byteLength,
+        createdAt: nowIso(),
+      })
+      .run();
+  }
+
+  async getTaskCommentAttachmentContent(
+    taskId: string,
+    commentId: string,
+    attachmentId: string
+  ) {
+    await this.#getTaskRow(taskId);
+    const row = await this.#db
+      .select()
+      .from(taskCommentAttachments)
+      .where(eq(taskCommentAttachments.id, attachmentId))
+      .get();
+
+    if (!row || row.taskId !== taskId || row.taskCommentId !== commentId) {
+      throw notFound("Comment attachment was not found.");
+    }
+
+    const absolutePath = `${this.#env.attachmentsDir}/${row.relativeStoragePath}`;
+    const buffer = await readFile(absolutePath);
+
+    return {
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      buffer,
+    };
+  }
+
+  async startTask(
+    taskId: string,
+    options?: {
+      thinkingLevel?: ThinkingLevel | null;
+    }
+  ) {
     const task = await this.#getTaskRow(taskId);
     const project = await this.#getProjectRow(task.projectId);
     const agent = await this.#getAgentRow(task.assignedAgentId);
@@ -1479,7 +2441,9 @@ export class NovaService {
       .all();
 
     await this.#assertTaskCanStart(task, agent, attachments);
+    await this.#assertRuntimeEnabled(agent.runtimeKind);
     await this.#syncAgentWorkspaceRow(agent);
+    const agentWorkspaceContext = await this.#loadAgentWorkspaceTextFields(agent);
 
     const adapter = this.#runtimeManager.getAdapter(agent.runtimeKind);
     await adapter.ensureRuntimeReady();
@@ -1498,8 +2462,20 @@ export class NovaService {
       project.projectRoot,
       task.executionTargetOverride
     );
+    const taskGitContext = await this.#ensureTaskGitContext(task, {
+      executionTarget: resolvedTarget.absolutePath,
+      taskId,
+    });
+    const previousRuntimeSessionKey =
+      agent.runtimeKind === "codex" || agent.runtimeKind === "claude-code"
+        ? await this.#getLatestReusableRuntimeSessionKey(
+            taskId,
+            agent.runtimeKind,
+            agent.id
+          )
+        : null;
     const runId = generateId();
-    const runtimeSessionKey = `nova:task:${taskId}`;
+    const runtimeSessionKey = previousRuntimeSessionKey ?? `nova:task:${taskId}`;
     const runDir = `${agent.agentHomePath}/.apm/runs/${runId}`;
     const inputsDir = `${runDir}/inputs`;
     const outputsDir = `${runDir}/outputs`;
@@ -1531,7 +2507,11 @@ export class NovaService {
       attachmentNames.push(attachment.fileName);
     }
 
-    const followUpInstructions = await this.#buildTaskFollowUpInstructions(taskId);
+    const followUpInstructions = await this.#buildTaskFollowUpInstructions(taskId, {
+      currentAgentId: agent.id,
+      reusingRuntimeSession: Boolean(previousRuntimeSessionKey),
+      commentInputsDir: `${inputsDir}/comments`,
+    });
 
     const taskFile = buildTaskFile({
       taskId,
@@ -1543,9 +2523,23 @@ export class NovaService {
       resolvedExecutionTarget: resolvedTarget.normalizedPath,
       attachments: attachmentNames,
       extraInstructions: followUpInstructions,
+      gitBranchName: taskGitContext.branchName,
+      gitBranchUrl: taskGitContext.branchUrl,
+      gitRepoRoot: taskGitContext.repoRoot,
+    });
+    const agentContextFile = buildAgentContextFile({
+      agentName: agent.name,
+      directiveText: agentWorkspaceContext.systemInstructions,
+      personaText: agentWorkspaceContext.personaText,
+      identityText: agentWorkspaceContext.identityText,
+      userContextText: agentWorkspaceContext.userContextText,
+      toolsText: agentWorkspaceContext.toolsText,
+      heartbeatText: agentWorkspaceContext.heartbeatText,
+      memoryText: agentWorkspaceContext.memoryText,
     });
 
     await writeFile(`${runDir}/TASK.md`, taskFile, "utf8");
+    await writeFile(`${runDir}/AGENT_CONTEXT.md`, agentContextFile, "utf8");
     await writeFile(
       `${runDir}/NOVA_RUNTIME.json`,
       stringifyJson({
@@ -1584,6 +2578,7 @@ export class NovaService {
     const active: ActiveSubscription = {
       runId,
       runtimeSessionKey,
+      runtimeKind: agent.runtimeKind,
       nextSeq: 1,
       queue: Promise.resolve(),
       unsubscribe: null,
@@ -1594,12 +2589,19 @@ export class NovaService {
       const startResult = await adapter.startRun({
         taskId,
         runId,
+        previousRuntimeSessionKey,
         agentId: agent.id,
         runtimeAgentId: agent.runtimeAgentId,
         agentHomePath: agent.agentHomePath,
         executionTarget: resolvedTarget.normalizedPath,
         prompt: buildRuntimePrompt(runId, {
           followUpInstructions,
+          taskFilePath: `${runDir}/TASK.md`,
+          bridgeFilePath: `${runDir}/NOVA_RUNTIME.json`,
+          skillFilePath: `${agent.agentHomePath}/skills/nova-ticket-bridge/SKILL.md`,
+          agentContextFilePath: `${runDir}/AGENT_CONTEXT.md`,
+          gitBranchName: taskGitContext.branchName,
+          gitBranchUrl: taskGitContext.branchUrl,
         }),
         attachments: attachments.map((attachment) => ({
           id: attachment.id,
@@ -1610,7 +2612,8 @@ export class NovaService {
           sizeBytes: attachment.sizeBytes,
         })),
         modelOverride: this.#buildModelId(agent.modelProvider, agent.modelName),
-        thinkingLevel: agent.defaultThinkingLevel,
+        thinkingLevel: options?.thinkingLevel ?? agent.defaultThinkingLevel,
+        sandboxMode: agent.sandboxMode,
       });
 
       await this.#db
@@ -1646,6 +2649,8 @@ export class NovaService {
         .where(eq(agents.id, agent.id))
         .run();
 
+      active.runtimeSessionKey = startResult.runtimeSessionKey;
+
       const unsubscribe = await adapter.subscribeRun(
         startResult.runtimeSessionKey,
         async (event) => {
@@ -1663,7 +2668,6 @@ export class NovaService {
         }
       );
 
-      active.runtimeSessionKey = startResult.runtimeSessionKey;
       active.unsubscribe = unsubscribe;
 
       const run = await this.getRun(runId);
@@ -1728,7 +2732,14 @@ export class NovaService {
     }
   }
 
-  async #buildTaskFollowUpInstructions(taskId: string) {
+  async #buildTaskFollowUpInstructions(
+    taskId: string,
+    options?: {
+      currentAgentId?: string | null;
+      reusingRuntimeSession?: boolean;
+      commentInputsDir?: string | null;
+    }
+  ) {
     const comments = await this.#db
       .select()
       .from(taskComments)
@@ -1750,18 +2761,99 @@ export class NovaService {
       return comment.createdAt > latestAgentCommentAt;
     });
     const recentOperatorComments = relevantOperatorComments.slice(0, 5).reverse();
+    const recentAgentHandoffComments =
+      options?.reusingRuntimeSession === false
+        ? comments
+            .filter(
+              (comment) =>
+                comment.authorType === "agent" &&
+                comment.authorId &&
+                comment.authorId !== options.currentAgentId
+            )
+            .slice(0, 3)
+            .reverse()
+        : [];
 
-    if (recentOperatorComments.length === 0) {
+    if (
+      recentOperatorComments.length === 0 &&
+      recentAgentHandoffComments.length === 0
+    ) {
       return null;
     }
 
-    return [
-      "Recent operator follow-up comments:",
-      ...recentOperatorComments.map(
-        (comment, index) => `${index + 1}. [${comment.createdAt}] ${comment.body}`
-      ),
-      "Treat the newest operator comment as the current revision request.",
-    ].join("\n");
+    const operatorCommentIds = recentOperatorComments.map((comment) => comment.id);
+    const operatorAttachmentRows =
+      operatorCommentIds.length > 0
+        ? await this.#db
+            .select()
+            .from(taskCommentAttachments)
+            .where(inArray(taskCommentAttachments.taskCommentId, operatorCommentIds))
+            .orderBy(taskCommentAttachments.createdAt)
+            .all()
+        : [];
+
+    const attachmentsByCommentId = new Map<string, TaskCommentAttachmentRecord[]>();
+    for (const row of operatorAttachmentRows) {
+      const attachment = this.#serializeCommentAttachment(row);
+      const existing = attachmentsByCommentId.get(attachment.taskCommentId) ?? [];
+      existing.push(attachment);
+      attachmentsByCommentId.set(attachment.taskCommentId, existing);
+    }
+
+    const stagedPathsByCommentId = new Map<string, string[]>();
+    if (options?.commentInputsDir) {
+      for (const comment of recentOperatorComments) {
+        const attachments = attachmentsByCommentId.get(comment.id) ?? [];
+        if (attachments.length === 0) {
+          continue;
+        }
+
+        const stagedPaths = await this.#stageCommentAttachmentsForRun(
+          options.commentInputsDir,
+          comment.id,
+          attachments
+        );
+        stagedPathsByCommentId.set(comment.id, stagedPaths);
+      }
+    }
+
+    const sections: string[] = [];
+
+    if (recentOperatorComments.length > 0) {
+      sections.push(
+        "Recent operator follow-up comments:",
+        ...recentOperatorComments.flatMap((comment, index) => {
+          const lines = [`${index + 1}. [${comment.createdAt}] ${comment.body}`];
+          const attachments = attachmentsByCommentId.get(comment.id) ?? [];
+          const stagedPaths = stagedPathsByCommentId.get(comment.id) ?? [];
+
+          if (attachments.length > 0) {
+            lines.push("   Attachments:");
+            attachments.forEach((attachment, attachmentIndex) => {
+              lines.push(
+                `   - ${attachment.fileName} (${attachment.mimeType}) -> ${stagedPaths[attachmentIndex] ?? attachment.fileName}`
+              );
+            });
+          }
+
+          return lines;
+        }),
+        "Treat the newest operator comment as the current revision request."
+      );
+    }
+
+    if (recentAgentHandoffComments.length > 0) {
+      sections.push(
+        "Recent agent handoff context:",
+        ...recentAgentHandoffComments.map(
+          (comment, index) =>
+            `${index + 1}. [${comment.createdAt}] ${comment.body}`
+        ),
+        "Use the handoff context for background, but follow operator comments over earlier agent notes if they conflict."
+      );
+    }
+
+    return sections.join("\n");
   }
 
   async stopTask(taskId: string) {
@@ -2367,6 +3459,17 @@ export class NovaService {
         : `${text.slice(0, max - 1).trimEnd()}…`;
     };
 
+    const latestTaskRuns = this.#db
+      .select({
+        taskId: taskRuns.taskId,
+        latestCreatedAt: sql<string>`max(${taskRuns.createdAt})`.as(
+          "latest_created_at"
+        ),
+      })
+      .from(taskRuns)
+      .groupBy(taskRuns.taskId)
+      .as("latest_task_runs");
+
     const [failedRuns, blockedTasks, errorAgents] = await Promise.all([
       this.#db
         .select({
@@ -2374,15 +3477,29 @@ export class NovaService {
           taskId: tasks.id,
           taskNumber: tasks.taskNumber,
           taskTitle: tasks.title,
+          taskStatus: tasks.status,
           projectId: projects.id,
           projectName: projects.name,
           failureReason: taskRuns.failureReason,
           endedAt: taskRuns.endedAt,
+          createdAt: taskRuns.createdAt,
         })
         .from(taskRuns)
+        .innerJoin(
+          latestTaskRuns,
+          and(
+            eq(taskRuns.taskId, latestTaskRuns.taskId),
+            eq(taskRuns.createdAt, latestTaskRuns.latestCreatedAt)
+          )
+        )
         .innerJoin(tasks, eq(taskRuns.taskId, tasks.id))
         .innerJoin(projects, eq(tasks.projectId, projects.id))
-        .where(eq(taskRuns.status, "failed"))
+        .where(
+          and(
+            eq(taskRuns.status, "failed"),
+            notInArray(tasks.status, ["blocked", "in_review", "done", "canceled"])
+          )
+        )
         .orderBy(desc(taskRuns.endedAt), desc(taskRuns.createdAt))
         .limit(limit)
         .all(),
@@ -2425,7 +3542,7 @@ export class NovaService {
         row.failureReason,
         `${row.taskTitle} failed and needs operator review.`
       ),
-      createdAt: row.endedAt ?? nowIso(),
+      createdAt: row.endedAt ?? row.createdAt,
       href: `/projects/${row.projectId}/board/${row.taskId}`,
       actionLabel: "Open Task",
     }));
@@ -2679,10 +3796,28 @@ export class NovaService {
       }
     }
 
-    const runtimeHealth = await this.#runtimeManager.getHealth();
+    const runtimeHealth = await this.#runtimeManager
+      .getAdapter(agent.runtimeKind)
+      .getHealth();
 
     if (runtimeHealth.status !== "healthy") {
       throw serviceUnavailable("Runtime health is not healthy.", runtimeHealth);
+    }
+  }
+
+  async #assertRuntimeEnabled(runtimeKind: RuntimeKind) {
+    const settingsRow = await this.#getSettingsRow();
+    const enabled =
+      runtimeKind === "codex"
+        ? settingsRow.codexEnabled
+        : runtimeKind === "claude-code"
+          ? settingsRow.claudeEnabled
+          : settingsRow.openclawEnabled;
+
+    if (!enabled) {
+      throw serviceUnavailable(
+        `${this.#runtimeLabel(runtimeKind)} runtime is disabled in runtime settings.`
+      );
     }
   }
 
@@ -2693,6 +3828,7 @@ export class NovaService {
     event: RuntimeEvent
   ) {
     const active = this.#activeRuns.get(runId);
+    let postTerminalAction: (() => Promise<void>) | null = null;
 
     if (!active) {
       return;
@@ -2718,29 +3854,6 @@ export class NovaService {
           createdAt: event.at,
         })
         .run();
-    }
-
-    if (event.type === "message.completed") {
-      const message =
-        typeof event.data.message === "string" ? event.data.message.trim() : "";
-      const externalMessageId =
-        typeof event.data.externalMessageId === "string"
-          ? event.data.externalMessageId
-          : null;
-      const awaitingOperatorInput = await this.#runIsAwaitingOperatorInput(runId);
-
-      if (message && !awaitingOperatorInput) {
-        await this.#createTaskCommentRecord({
-          taskId,
-          taskRunId: runId,
-          authorType: "agent",
-          authorId: agentId,
-          source: "agent_mirror",
-          externalMessageId,
-          body: message,
-          createdAt: event.at,
-        });
-      }
     }
 
     if (event.type === "usage") {
@@ -2806,6 +3919,11 @@ export class NovaService {
     }
 
     if (event.type === "run.failed") {
+      const failureReason =
+        typeof event.data.reason === "string"
+          ? event.data.reason
+          : "Run failed.";
+
       await this.#finalizeRun({
         runId,
         taskId,
@@ -2814,11 +3932,36 @@ export class NovaService {
         taskStatus: "failed",
         endedAt: event.at,
         finalSummary: null,
-        failureReason:
-          typeof event.data.reason === "string"
-            ? event.data.reason
-            : "Run failed.",
+        failureReason,
       });
+
+      if (
+        await this.#shouldAutoContinueAfterClaudeMaxTurns({
+          runId,
+          taskId,
+          agentId,
+          failureReason,
+        })
+      ) {
+        postTerminalAction = async () => {
+          try {
+            await this.startTask(taskId);
+          } catch (error) {
+            await this.#createTaskCommentRecord({
+              taskId,
+              taskRunId: runId,
+              authorType: "system",
+              authorId: null,
+              source: "system",
+              body:
+                error instanceof Error
+                  ? `Nova could not automatically continue the Claude task after the turn limit was reached: ${error.message}`
+                  : "Nova could not automatically continue the Claude task after the turn limit was reached.",
+            });
+            this.#websocketHub.broadcast("task.updated", await this.getTask(taskId));
+          }
+        };
+      }
     }
 
     if (event.type === "run.aborted") {
@@ -2875,6 +4018,10 @@ export class NovaService {
 
       this.#activeRuns.delete(runId);
     }
+
+    if (postTerminalAction) {
+      await postTerminalAction();
+    }
   }
 
   async #finalizeRun(input: {
@@ -2920,6 +4067,70 @@ export class NovaService {
       .run();
   }
 
+  async #shouldAutoContinueAfterClaudeMaxTurns(input: {
+    runId: string;
+    taskId: string;
+    agentId: string;
+    failureReason: string;
+  }) {
+    if (!this.#isClaudeMaxTurnsFailure(input.failureReason)) {
+      return false;
+    }
+
+    const run = await this.#getRunRow(input.runId);
+
+    if (run.runtimeKind !== "claude-code") {
+      return false;
+    }
+
+    const previousMaxTurnFailure = await this.#db
+      .select({ id: taskRuns.id })
+      .from(taskRuns)
+      .where(
+        and(
+          eq(taskRuns.taskId, input.taskId),
+          eq(taskRuns.agentId, input.agentId),
+          eq(taskRuns.runtimeKind, "claude-code"),
+          eq(taskRuns.runtimeSessionKey, run.runtimeSessionKey),
+          eq(taskRuns.status, "failed"),
+          eq(
+            taskRuns.failureReason,
+            "Claude reached the maximum number of turns before completing the task."
+          ),
+          notInArray(taskRuns.id, [input.runId])
+        )
+      )
+      .get();
+
+    if (previousMaxTurnFailure) {
+      return false;
+    }
+
+    const madeProgress = await this.#db
+      .select({ count: sql<number>`count(*)` })
+      .from(runEvents)
+      .where(
+        and(
+          eq(runEvents.taskRunId, input.runId),
+          inArray(runEvents.eventType, [
+            "tool.completed",
+            "artifact.created",
+            "message.completed",
+          ])
+        )
+      )
+      .get();
+
+    return (madeProgress?.count ?? 0) > 0;
+  }
+
+  #isClaudeMaxTurnsFailure(reason: string | null) {
+    return (
+      typeof reason === "string" &&
+      reason.includes("Claude reached the maximum number of turns")
+    );
+  }
+
   async #appendRunEvent(
     runId: string,
     event: RuntimeEvent,
@@ -2927,6 +4138,7 @@ export class NovaService {
   ) {
     const active = activeSubscription ?? this.#activeRuns.get(runId) ?? null;
     const seq = active ? active.nextSeq++ : await this.#getNextRunEventSeq(runId);
+    const payload = this.#augmentRunEventPayload(event, active?.runtimeKind ?? null);
 
     await this.#db
       .insert(runEvents)
@@ -2935,7 +4147,7 @@ export class NovaService {
         taskRunId: runId,
         seq,
         eventType: event.type,
-        payloadJson: stringifyJson(event.data),
+        payloadJson: stringifyJson(payload),
         createdAt: event.at,
       })
       .run();
@@ -2953,6 +4165,35 @@ export class NovaService {
       .get();
 
     return (latest?.seq ?? 0) + 1;
+  }
+
+  #augmentRunEventPayload(event: RuntimeEvent, runtimeKind: RuntimeKind | null) {
+    if (
+      !runtimeKind ||
+      (event.type !== "run.completed" &&
+        event.type !== "run.failed" &&
+        event.type !== "run.aborted")
+    ) {
+      return event.data;
+    }
+
+    if (event.data && typeof event.data === "object" && !Array.isArray(event.data)) {
+      const payload = event.data as Record<string, JsonValue>;
+
+      if (typeof payload.runtimeKind === "string") {
+        return payload;
+      }
+
+      return {
+        ...payload,
+        runtimeKind,
+      } satisfies Record<string, JsonValue>;
+    }
+
+    return {
+      runtimeKind,
+      value: event.data as JsonValue,
+    } satisfies Record<string, JsonValue>;
   }
 
   async #mirrorLatestAssistantMessageFromRuntime(
@@ -3002,7 +4243,7 @@ export class NovaService {
         .get();
 
       if (existing) {
-        return this.#serializeComment(existing);
+        return (await this.#serializeCommentRows([existing]))[0];
       }
     }
 
@@ -3031,7 +4272,228 @@ export class NovaService {
       throw notFound("Task comment was not persisted.");
     }
 
-    return this.#serializeComment(row);
+    return (await this.#serializeCommentRows([row]))[0];
+  }
+
+  async #ensureTaskGitContext(
+    task: typeof tasks.$inferSelect,
+    input: { executionTarget: string; taskId: string }
+  ): Promise<TaskGitContext> {
+    const repoRoot = await this.#findGitRepoRoot(input.executionTarget);
+
+    if (!repoRoot) {
+      await this.#persistTaskGitContext(task.id, {
+        repoRoot: null,
+        branchName: null,
+        branchUrl: null,
+      }, task);
+
+      return {
+        repoRoot: null,
+        branchName: null,
+        branchUrl: null,
+      };
+    }
+
+    const branchName =
+      task.gitBranchName ?? buildTaskBranchName(task.taskNumber, task.title, input.taskId);
+
+    await this.#checkoutTaskBranch(repoRoot, branchName);
+
+    const remoteUrl = await this.#getGitRemoteOrigin(repoRoot);
+    const branchUrl = buildBranchUrl(remoteUrl, branchName);
+    const nextContext = {
+      repoRoot,
+      branchName,
+      branchUrl,
+    };
+
+    await this.#persistTaskGitContext(task.id, nextContext, task);
+
+    return nextContext;
+  }
+
+  async #persistTaskGitContext(
+    taskId: string,
+    next: TaskGitContext,
+    current?: typeof tasks.$inferSelect | null
+  ) {
+    const currentTask = current ?? (await this.#getTaskRow(taskId));
+
+    if (
+      currentTask.gitRepoRoot === next.repoRoot &&
+      currentTask.gitBranchName === next.branchName &&
+      currentTask.gitBranchUrl === next.branchUrl
+    ) {
+      return;
+    }
+
+    await this.#db
+      .update(tasks)
+      .set({
+        gitRepoRoot: next.repoRoot,
+        gitBranchName: next.branchName,
+        gitBranchUrl: next.branchUrl,
+        updatedAt: nowIso(),
+      })
+      .where(eq(tasks.id, taskId))
+      .run();
+  }
+
+  async #findGitRepoRoot(executionTarget: string) {
+    try {
+      const { stdout } = await this.#runGit(
+        executionTarget,
+        ["rev-parse", "--show-toplevel"],
+        "Failed to inspect the execution target Git repository."
+      );
+
+      const repoRoot = stdout.trim();
+      return repoRoot.length > 0 ? repoRoot : null;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async #checkoutTaskBranch(repoRoot: string, branchName: string) {
+    const currentBranch = await this.#getCurrentGitBranch(repoRoot);
+
+    if (currentBranch === branchName) {
+      return;
+    }
+
+    const branchExists = await this.#gitBranchExists(repoRoot, branchName);
+
+    if (branchExists) {
+      await this.#runGit(
+        repoRoot,
+        ["switch", branchName],
+        `Failed to switch to the task branch ${branchName}.`
+      );
+      return;
+    }
+
+    const hasHead = await this.#gitHasCommittedHead(repoRoot);
+
+    if (hasHead) {
+      await this.#runGit(
+        repoRoot,
+        ["switch", "-c", branchName],
+        `Failed to create the task branch ${branchName}.`
+      );
+      return;
+    }
+
+    await this.#runGit(
+      repoRoot,
+      ["checkout", "--orphan", branchName],
+      `Failed to create the initial task branch ${branchName}.`
+    );
+  }
+
+  async #gitBranchExists(repoRoot: string, branchName: string) {
+    try {
+      await this.#runGit(
+        repoRoot,
+        ["rev-parse", "--verify", "--quiet", `refs/heads/${branchName}`],
+        ""
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  async #getCurrentGitBranch(repoRoot: string) {
+    try {
+      const { stdout } = await this.#runGit(
+        repoRoot,
+        ["branch", "--show-current"],
+        ""
+      );
+      const branch = stdout.trim();
+      return branch.length > 0 ? branch : null;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async #gitHasCommittedHead(repoRoot: string) {
+    try {
+      await this.#runGit(repoRoot, ["rev-parse", "--verify", "HEAD"], "");
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  async #getGitRemoteOrigin(repoRoot: string) {
+    try {
+      const { stdout } = await this.#runGit(
+        repoRoot,
+        ["config", "--get", "remote.origin.url"],
+        ""
+      );
+      const remoteUrl = stdout.trim();
+      return remoteUrl.length > 0 ? remoteUrl : null;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  async #runGit(repoRoot: string, args: string[], message: string) {
+    try {
+      return await execFileAsync("git", args, {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+        },
+        timeout: 15_000,
+      });
+    } catch (error) {
+      const stderr =
+        typeof error === "object" &&
+        error &&
+        "stderr" in error &&
+        typeof error.stderr === "string"
+          ? error.stderr.trim()
+          : "";
+      const stdout =
+        typeof error === "object" &&
+        error &&
+        "stdout" in error &&
+        typeof error.stdout === "string"
+          ? error.stdout.trim()
+          : "";
+      const detail = stderr || stdout;
+
+      throw conflict(
+        message
+          ? `${message}${detail ? ` ${detail}` : ""}`
+          : detail || "Git command failed."
+      );
+    }
   }
 
   #buildNovaTicketBridgeSkill() {
@@ -3044,9 +4506,11 @@ Use this skill when you are working a Nova task that includes:
 ## Read First
 - Open the TASK.md file for the active run and follow it exactly.
 - Open NOVA_RUNTIME.json for the active run. It contains the Nova base URL, task id, run id, agent id, and a scoped bearer token.
+- If TASK.md provides a task branch, stay on that branch for this task and all follow-up runs. Do not create a different branch unless the operator explicitly asks.
 
 ## Ticket Communication Rules
-- Normal conversational progress is mirrored automatically from OpenClaw back into Nova once your assistant turn completes.
+- Use the ticket comment thread only for operator-facing communication: questions, blockers, approval requests, and the final completed handoff.
+- Do not use the ticket thread as a running diary. Keep internal progress, narration, and step-by-step thinking inside the runtime stream and execution log.
 - Format operator-facing ticket updates in Markdown. Prefer short sections, bullet lists, fenced code blocks for snippets, and inline code for file paths or commands.
 - If TASK.md includes follow-up comments from the operator, treat the newest one as the active request for the current run.
 - If the operator asks for confirmation before a change or leaves a design decision open, use the checkpoint only for state tracking. In operator-facing text, ask the question directly in plain language.
@@ -3056,6 +4520,8 @@ Use this skill when you are working a Nova task that includes:
 - If you need to post a structured update, call the Nova bridge directly with the bearer token from NOVA_RUNTIME.json.
 - Operator comments on the ticket are forwarded back into this same task session while the run is active.
 - Do not emit a completion summary in chat when you are waiting on operator input. Only produce the final summary when the requested work is actually complete.
+- When the work is complete, include the task branch name and branch link if available, then ask the operator whether you should open a pull request from that branch.
+- If the operator explicitly asks you to create a pull request, create it from the current task branch and share the PR URL in the ticket handoff.
 
 ## Endpoints
 - POST /api/agent-runtime/tasks/<taskId>/comments
@@ -3130,20 +4596,232 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     return Boolean(latestRun);
   }
 
+  async #getLatestReusableRuntimeSessionKey(
+    taskId: string,
+    runtimeKind: typeof taskRuns.$inferSelect.runtimeKind,
+    agentId: string
+  ) {
+    const latestRun = await this.#db
+      .select({ runtimeSessionKey: taskRuns.runtimeSessionKey })
+      .from(taskRuns)
+      .where(
+        and(
+          eq(taskRuns.taskId, taskId),
+          eq(taskRuns.runtimeKind, runtimeKind),
+          eq(taskRuns.agentId, agentId)
+        )
+      )
+      .orderBy(desc(taskRuns.createdAt))
+      .get();
+
+    const runtimeSessionKey = latestRun?.runtimeSessionKey?.trim() ?? null;
+
+    if (!runtimeSessionKey) {
+      return null;
+    }
+
+    if (
+      (runtimeKind === "codex" || runtimeKind === "claude-code") &&
+      !this.#looksLikeRuntimeSessionUuid(runtimeSessionKey)
+    ) {
+      return null;
+    }
+
+    return runtimeSessionKey;
+  }
+
+  async #handleUserCommentIntent(
+    task: typeof tasks.$inferSelect,
+    comment: TaskCommentRecord,
+    activeRun: typeof taskRuns.$inferSelect | null,
+    thinkingLevel: ThinkingLevel | null
+  ) {
+    const mention = await this.#resolveMentionedAgent(comment.body);
+
+    if (mention.status === "none") {
+      return;
+    }
+
+    if (mention.status !== "resolved" || !mention.agent) {
+      await this.#createTaskCommentRecord({
+        taskId: task.id,
+        taskRunId: activeRun?.id ?? null,
+        authorType: "system",
+        authorId: null,
+        source: "system",
+        body:
+          mention.message ??
+          "Comment saved. Nova could not route it to an agent.",
+      });
+      this.#websocketHub.broadcast("task.updated", await this.getTask(task.id));
+      return;
+    }
+
+    if (activeRun) {
+      if (mention.agent.id === activeRun.agentId) {
+        await this.#forwardCommentToActiveRun(task.id, comment, activeRun, thinkingLevel);
+        return;
+      }
+
+      await this.#createTaskCommentRecord({
+        taskId: task.id,
+        taskRunId: activeRun.id,
+        authorType: "system",
+        authorId: null,
+        source: "system",
+        body: `Comment saved for @${mention.agent.slug}. Stop the current run before handing this task to ${mention.agent.name}.`,
+      });
+      this.#websocketHub.broadcast("task.updated", await this.getTask(task.id));
+      return;
+    }
+
+    if (task.status === "done" || task.status === "canceled") {
+      await this.#createTaskCommentRecord({
+        taskId: task.id,
+        taskRunId: null,
+        authorType: "system",
+        authorId: null,
+        source: "system",
+        body: `Comment saved for @${mention.agent.slug}, but the task cannot be started from its current status.`,
+      });
+      this.#websocketHub.broadcast("task.updated", await this.getTask(task.id));
+      return;
+    }
+
+    if (!(await this.#isAgentAssignedToProject(task.projectId, mention.agent.id))) {
+      await this.assignAgentToProject(task.projectId, mention.agent.id);
+    }
+
+    if (mention.agent.id !== task.assignedAgentId) {
+      await this.patchTask(task.id, {
+        assignedAgentId: mention.agent.id,
+      });
+    }
+
+    await this.#autoResumeTaskAfterComment(task.id, thinkingLevel);
+  }
+
+  async #resolveMentionedAgent(body: string): Promise<MentionedAgentResolution> {
+    const tokens = this.#extractAgentMentionTokens(body);
+
+    if (tokens.length === 0) {
+      return {
+        status: "none",
+        token: null,
+        agent: null,
+        message: null,
+      };
+    }
+
+    const agentRows = await this.#db.select().from(agents).all();
+    const matchedAgents = new Map<string, typeof agents.$inferSelect>();
+
+    for (const token of tokens) {
+      const matches = agentRows.filter((agent) => {
+        const aliases = new Set([
+          agent.slug.toLowerCase(),
+          slugify(agent.name).toLowerCase(),
+          agent.runtimeAgentId.toLowerCase(),
+        ]);
+
+        return aliases.has(token);
+      });
+
+      if (matches.length > 1) {
+        return {
+          status: "ambiguous",
+          token,
+          agent: null,
+          message: `Comment saved. @${token} matches more than one agent. Mention one unique agent at a time.`,
+        };
+      }
+
+      if (matches.length === 0) {
+        return {
+          status: "unknown",
+          token,
+          agent: null,
+          message: `Comment saved. Nova could not find an agent matching @${token}.`,
+        };
+      }
+
+      matchedAgents.set(matches[0].id, matches[0]);
+    }
+
+    if (matchedAgents.size !== 1) {
+      return {
+        status: "ambiguous",
+        token: tokens[0] ?? null,
+        agent: null,
+        message: "Comment saved. Mention one agent at a time to wake or reroute work.",
+      };
+    }
+
+    return {
+      status: "resolved",
+      token: tokens[0] ?? null,
+      agent: [...matchedAgents.values()][0],
+      message: null,
+    };
+  }
+
+  #extractAgentMentionTokens(body: string) {
+    return [
+      ...new Set(
+        [...body.matchAll(/(^|[\s(])@([a-zA-Z0-9][a-zA-Z0-9._-]*)/g)].map(
+          (match) => match[2].toLowerCase()
+        )
+      ),
+    ];
+  }
+
+  async #isAgentAssignedToProject(projectId: string, agentId: string) {
+    const existing = await this.#db
+      .select({ id: projectAgents.id })
+      .from(projectAgents)
+      .where(
+        and(
+          eq(projectAgents.projectId, projectId),
+          eq(projectAgents.agentId, agentId)
+        )
+      )
+      .get();
+
+    return Boolean(existing);
+  }
+
   async #forwardCommentToActiveRun(
     taskId: string,
     comment: TaskCommentRecord,
-    activeRun: typeof taskRuns.$inferSelect
+    activeRun: typeof taskRuns.$inferSelect,
+    thinkingLevel: ThinkingLevel | null
   ) {
     try {
       const agent = await this.#getAgentRow(activeRun.agentId);
+      const commentAttachments = await this.#getTaskCommentAttachments(comment.id);
+      const stagedCommentAttachmentPaths = await this.#stageCommentAttachmentsForRun(
+        `${agent.agentHomePath}/.apm/runs/${activeRun.id}/inputs/comments`,
+        comment.id,
+        commentAttachments
+      );
+      const forwardedText =
+        stagedCommentAttachmentPaths.length > 0
+          ? [
+              comment.body,
+              "",
+              "Comment attachments:",
+              ...stagedCommentAttachmentPaths.map((path) => `- ${path}`),
+              "",
+              "Use these attachment files as context for the operator's latest comment.",
+            ].join("\n")
+          : comment.body;
 
       await this.#runtimeManager
         .getAdapter(activeRun.runtimeKind)
         .sendRunInput(activeRun.runtimeSessionKey, {
-          text: comment.body,
+          text: forwardedText,
           idempotencyKey: comment.id,
-          thinkingLevel: agent.defaultThinkingLevel,
+          thinkingLevel: thinkingLevel ?? agent.defaultThinkingLevel,
         });
     } catch (error) {
       await this.#createTaskCommentRecord({
@@ -3161,9 +4839,35 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     }
   }
 
-  async #autoResumeTaskAfterComment(taskId: string) {
+  async #stageCommentAttachmentsForRun(
+    commentInputsDir: string,
+    commentId: string,
+    attachments: TaskCommentAttachmentRecord[]
+  ) {
+    if (attachments.length === 0) {
+      return [];
+    }
+
+    const commentDir = `${commentInputsDir}/${commentId}`;
+    await mkdir(commentDir, { recursive: true });
+    const stagedPaths: string[] = [];
+
+    for (const attachment of attachments) {
+      const source = `${this.#env.attachmentsDir}/${attachment.relativeStoragePath}`;
+      const destination = `${commentDir}/${attachment.fileName}`;
+      await copyFile(source, destination);
+      stagedPaths.push(destination);
+    }
+
+    return stagedPaths;
+  }
+
+  async #autoResumeTaskAfterComment(
+    taskId: string,
+    thinkingLevel: ThinkingLevel | null
+  ) {
     try {
-      await this.startTask(taskId);
+      await this.startTask(taskId, { thinkingLevel });
     } catch (error) {
       await this.#createTaskCommentRecord({
         taskId,
@@ -3204,6 +4908,12 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
 
   #getOperatorBaseUrl() {
     return `http://127.0.0.1:${this.#env.port}`;
+  }
+
+  #looksLikeRuntimeSessionUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    );
   }
 
   #createRunBridgeToken(input: {
@@ -3421,6 +5131,32 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     };
   }
 
+  #buildCodexRuntimeDefaults(runtimeAgentId: string) {
+    return {
+      workspacePath: `${this.#env.agentHomesDir}/${runtimeAgentId}`,
+      runtimeStatePath: `${this.#env.codexStateDir}/nova-agents/${runtimeAgentId}`,
+    };
+  }
+
+  #buildClaudeRuntimeDefaults(runtimeAgentId: string) {
+    return {
+      workspacePath: `${this.#env.agentHomesDir}/${runtimeAgentId}`,
+      runtimeStatePath: `${this.#env.claudeStateDir}/nova-agents/${runtimeAgentId}`,
+    };
+  }
+
+  #runtimeLabel(runtimeKind: RuntimeKind) {
+    if (runtimeKind === "codex") {
+      return "Codex";
+    }
+
+    if (runtimeKind === "claude-code") {
+      return "Claude Code";
+    }
+
+    return "OpenClaw";
+  }
+
   #splitModelId(modelId: string | null) {
     if (!modelId) {
       return {
@@ -3456,7 +5192,7 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     const files = [
       {
         relativePath: "AGENTS.md",
-        content: `# ${agent.name}\n\n${agent.systemInstructions || "No system instructions provided."}\n\n## Nova Runtime Bridge\n- Read skills/nova-ticket-bridge/SKILL.md before working Nova tasks.\n- For each active Nova task, inspect .apm/runs/<runId>/TASK.md and .apm/runs/<runId>/NOVA_RUNTIME.json.\n- Stay inside the assigned Execution Target unless the ticket explicitly requires otherwise.\n`,
+        content: this.#buildAgentsMdContent(agent),
       },
       {
         relativePath: "SOUL.md",
@@ -3618,6 +5354,70 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     };
   }
 
+  async #loadAgentWorkspaceTextFields(row: typeof agents.$inferSelect) {
+    const [
+      agentsText,
+      personaText,
+      identityText,
+      userContextText,
+      toolsText,
+      heartbeatText,
+      memoryText,
+    ] = await Promise.all([
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/AGENTS.md`),
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/SOUL.md`),
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/IDENTITY.md`),
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/USER.md`),
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/TOOLS.md`),
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/HEARTBEAT.md`),
+      this.#readOptionalAgentWorkspaceFile(`${row.agentHomePath}/MEMORY.md`),
+    ]);
+
+    return {
+      systemInstructions: agentsText ?? row.systemInstructions,
+      personaText: personaText ?? row.personaText,
+      identityText: identityText ?? row.identityText,
+      userContextText: userContextText ?? row.userContextText,
+      toolsText: toolsText ?? row.toolsText,
+      heartbeatText: heartbeatText ?? row.heartbeatText,
+      memoryText: memoryText ?? row.memoryText,
+    };
+  }
+
+  #buildAgentsMdContent(agent: typeof agents.$inferSelect) {
+    const raw = agent.systemInstructions?.trim();
+
+    if (raw && this.#looksLikeFullAgentsMd(raw)) {
+      return raw.endsWith("\n") ? raw : `${raw}\n`;
+    }
+
+    return `# ${agent.name}\n\n${raw || "No system instructions provided."}\n\n## Nova Runtime Bridge\n- Read skills/nova-ticket-bridge/SKILL.md before working Nova tasks.\n- For each active Nova task, inspect .apm/runs/<runId>/TASK.md and .apm/runs/<runId>/NOVA_RUNTIME.json.\n- Stay inside the assigned Execution Target unless the ticket explicitly requires otherwise.\n`;
+  }
+
+  #looksLikeFullAgentsMd(content: string) {
+    return (
+      content.includes("## Nova Runtime Bridge") ||
+      content.trimStart().startsWith("# ")
+    );
+  }
+
+  async #readOptionalAgentWorkspaceFile(path: string) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
   #serializeTask(row: typeof tasks.$inferSelect): TaskRecord {
     return {
       id: row.id,
@@ -3630,6 +5430,9 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
       assignedAgentId: row.assignedAgentId,
       executionTargetOverride: row.executionTargetOverride,
       resolvedExecutionTarget: row.resolvedExecutionTarget,
+      gitRepoRoot: row.gitRepoRoot,
+      gitBranchName: row.gitBranchName,
+      gitBranchUrl: row.gitBranchUrl,
       dueAt: row.dueAt,
       estimatedMinutes: row.estimatedMinutes,
       labels: parseJsonText<string[]>(row.labelsJson, []),
@@ -3639,16 +5442,94 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     };
   }
 
-  #serializeComment(row: typeof taskComments.$inferSelect): TaskCommentRecord {
+  async #serializeCommentRows(rows: (typeof taskComments.$inferSelect)[]) {
+    const commentIds = rows.map((row) => row.id);
+    const agentIds = [
+      ...new Set(
+        rows
+          .filter(
+            (row) => row.authorType === "agent" && typeof row.authorId === "string"
+          )
+          .map((row) => row.authorId as string)
+      ),
+    ];
+
+    const agentNameById = new Map<string, string>();
+    const attachmentsByCommentId = new Map<string, TaskCommentAttachmentRecord[]>();
+
+    if (agentIds.length > 0) {
+      const authorRows = await this.#db
+        .select({ id: agents.id, name: agents.name })
+        .from(agents)
+        .where(inArray(agents.id, agentIds))
+        .all();
+
+      for (const row of authorRows) {
+        agentNameById.set(row.id, row.name);
+      }
+    }
+
+    if (commentIds.length > 0) {
+      const attachmentRows = await this.#db
+        .select()
+        .from(taskCommentAttachments)
+        .where(inArray(taskCommentAttachments.taskCommentId, commentIds))
+        .orderBy(taskCommentAttachments.createdAt)
+        .all();
+
+      for (const row of attachmentRows) {
+        const attachment = this.#serializeCommentAttachment(row);
+        const existing = attachmentsByCommentId.get(row.taskCommentId) ?? [];
+        existing.push(attachment);
+        attachmentsByCommentId.set(row.taskCommentId, existing);
+      }
+    }
+
+    return rows.map((row) =>
+      this.#serializeComment(
+        row,
+        row.authorType === "agent"
+          ? agentNameById.get(row.authorId ?? "") ?? "Agent"
+          : row.authorType === "system"
+            ? "System"
+            : row.authorId,
+        attachmentsByCommentId.get(row.id) ?? []
+      )
+    );
+  }
+
+  #serializeComment(
+    row: typeof taskComments.$inferSelect,
+    authorLabel: string | null,
+    attachments: TaskCommentAttachmentRecord[]
+  ): TaskCommentRecord {
     return {
       id: row.id,
       taskId: row.taskId,
       taskRunId: row.taskRunId,
       authorType: row.authorType,
       authorId: row.authorId,
+      authorLabel,
       source: row.source,
       externalMessageId: row.externalMessageId,
       body: row.body,
+      attachments,
+      createdAt: row.createdAt,
+    };
+  }
+
+  #serializeCommentAttachment(
+    row: typeof taskCommentAttachments.$inferSelect
+  ): TaskCommentAttachmentRecord {
+    return {
+      id: row.id,
+      taskId: row.taskId,
+      taskCommentId: row.taskCommentId,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      relativeStoragePath: row.relativeStoragePath,
+      sha256: row.sha256,
+      sizeBytes: row.sizeBytes,
       createdAt: row.createdAt,
     };
   }

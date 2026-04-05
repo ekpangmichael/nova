@@ -10,6 +10,14 @@ import {
   writeBrowserNotificationPreferences,
   type BrowserNotificationPermissionState,
 } from "@/lib/browser-notifications";
+import {
+  DEFAULT_DISPLAY_PREFERENCES,
+  getTimezoneOptions,
+  readDisplayPreferencesFromBrowser,
+  writeDisplayPreferencesToBrowser,
+  type DisplayDateFormat,
+  type DisplayTimezonePreference,
+} from "@/lib/display-preferences";
 import { useTheme } from "@/components/theme-provider";
 
 function Toggle({
@@ -114,9 +122,16 @@ function SelectControl({
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
-  const [runtime, setRuntime] = useState("openclaw");
-  const [timezone, setTimezone] = useState("auto");
-  const [dateFormat, setDateFormat] = useState("relative");
+
+  const [timezone, setTimezone] = useState<DisplayTimezonePreference>(
+    DEFAULT_DISPLAY_PREFERENCES.timezone
+  );
+  const [dateFormat, setDateFormat] = useState<DisplayDateFormat>(
+    DEFAULT_DISPLAY_PREFERENCES.dateFormat
+  );
+  const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(
+    DEFAULT_DISPLAY_PREFERENCES.resolvedTimezone
+  );
   const [notifyTaskComplete, setNotifyTaskComplete] = useState(
     DEFAULT_BROWSER_NOTIFICATION_PREFERENCES.taskCompleted
   );
@@ -135,12 +150,13 @@ export default function SettingsPage() {
   const [testNotificationState, setTestNotificationState] = useState<
     "idle" | "sent" | "blocked"
   >("idle");
-  const [autoRetry, setAutoRetry] = useState(false);
-  const [autoResume, setAutoResume] = useState(true);
-  const [reviewBeforeClose, setReviewBeforeClose] = useState(true);
-  const [markdownComments, setMarkdownComments] = useState(true);
 
   useEffect(() => {
+    const displayPreferences = readDisplayPreferencesFromBrowser();
+    setTimezone(displayPreferences.timezone);
+    setDateFormat(displayPreferences.dateFormat);
+    setResolvedTimezone(displayPreferences.resolvedTimezone);
+
     setNotificationPermission(readBrowserNotificationPermission());
 
     if (!isBrowserNotificationSupported()) {
@@ -155,6 +171,11 @@ export default function SettingsPage() {
     setNotifyComments(storedPreferences.comments);
     setNotificationPrefsLoaded(true);
   }, []);
+
+  useEffect(() => {
+    writeDisplayPreferencesToBrowser({ timezone, dateFormat });
+    setResolvedTimezone(readDisplayPreferencesFromBrowser().resolvedTimezone);
+  }, [timezone, dateFormat]);
 
   useEffect(() => {
     if (!notificationPrefsLoaded) {
@@ -261,7 +282,7 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="mt-1.5 text-[13px] text-on-surface-variant/40">
-            Configure how Nova runs agents and displays information.
+            Customize your Nova experience.
           </p>
         </div>
 
@@ -285,13 +306,14 @@ export default function SettingsPage() {
             >
               <SelectControl
                 value={timezone}
-                onChange={setTimezone}
-                options={[
-                  { value: "auto", label: "Auto-detect" },
-                  { value: "utc", label: "UTC" },
-                  { value: "est", label: "US Eastern" },
-                  { value: "pst", label: "US Pacific" },
-                ]}
+                onChange={(value) =>
+                  setTimezone(value as DisplayTimezonePreference)
+                }
+                options={getTimezoneOptions({
+                  timezone,
+                  dateFormat,
+                  resolvedTimezone,
+                })}
               />
             </SettingRow>
             <SettingRow
@@ -300,7 +322,7 @@ export default function SettingsPage() {
             >
               <SelectControl
                 value={dateFormat}
-                onChange={setDateFormat}
+                onChange={(value) => setDateFormat(value as DisplayDateFormat)}
                 options={[
                   { value: "relative", label: "Relative (2m ago)" },
                   { value: "absolute", label: "Absolute (14:32)" },
@@ -311,56 +333,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Runtime */}
-        <section className="mb-8 anim-3">
-          <SectionHeader
-            title="Runtime"
-            description="The execution provider agents use to run tasks."
-          />
-          <div className="rounded-xl bg-surface-container-low ghost px-5 divide-y divide-outline-variant/[0.06]">
-            <SettingRow
-              label="Active runtime"
-              description="Select which provider handles agent execution."
-            >
-              <SelectControl
-                value={runtime}
-                onChange={setRuntime}
-                options={[
-                  { value: "openclaw", label: "OpenClaw" },
-                  { value: "codex", label: "Codex (coming soon)", disabled: true },
-                  { value: "cloud", label: "Cloud Code (coming soon)", disabled: true },
-                ]}
-              />
-            </SettingRow>
-            <SettingRow
-              label="Auto-retry failed runs"
-              description="Automatically retry once when a run fails."
-            >
-              <Toggle checked={autoRetry} onChange={setAutoRetry} />
-            </SettingRow>
-            <SettingRow
-              label="Auto-resume on reply"
-              description="Wake a paused task when an operator comments."
-            >
-              <Toggle checked={autoResume} onChange={setAutoResume} />
-            </SettingRow>
-            <SettingRow
-              label="Require review before close"
-              description="Completed tasks land in review instead of closing."
-            >
-              <Toggle checked={reviewBeforeClose} onChange={setReviewBeforeClose} />
-            </SettingRow>
-            <SettingRow
-              label="Markdown comments"
-              description="Agents write formatted markdown instead of raw logs."
-            >
-              <Toggle checked={markdownComments} onChange={setMarkdownComments} />
-            </SettingRow>
-          </div>
-        </section>
-
         {/* Notifications */}
-        <section className="mb-8 anim-4">
+        <section className="mb-8 anim-3">
           <SectionHeader
             title="Notifications"
             description="Desktop alerts for task completions, failures, and comments."
@@ -478,7 +452,7 @@ export default function SettingsPage() {
               </SettingRow>
               <SettingRow
                 label="Comments"
-                description="When an agent posts a ticket reply."
+                description="When a comment is posted on a task."
               >
                 <Toggle checked={notifyComments} onChange={setNotifyComments} />
               </SettingRow>

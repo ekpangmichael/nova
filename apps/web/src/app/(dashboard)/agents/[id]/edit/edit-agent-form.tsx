@@ -7,12 +7,21 @@ import { Icon } from "@/components/ui/icon";
 import {
   ApiError,
   type ApiAgent,
+  type ApiClaudeCatalog,
+  type ApiCodexCatalog,
   type ApiOpenClawCatalog,
   type PatchAgentInput,
   type ApiThinkingLevel,
+  getClaudeCatalog,
+  getCodexCatalog,
   getOpenClawCatalog,
   patchAgent,
 } from "@/lib/api";
+import {
+  formatThinkingLevelLabelForRuntime,
+  getThinkingOptionsForRuntime,
+  normalizeThinkingLevelForRuntime,
+} from "@/lib/runtime-thinking";
 
 const agentIcons = [
   "smart_toy",
@@ -29,14 +38,6 @@ const agentIcons = [
   "model_training",
 ];
 
-const thinkingLevels: ApiThinkingLevel[] = [
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
-
 const agentStatuses: Array<ApiAgent["status"]> = [
   "idle",
   "paused",
@@ -47,7 +48,9 @@ const agentStatuses: Array<ApiAgent["status"]> = [
 
 export function EditAgentForm({ agent }: { agent: ApiAgent }) {
   const router = useRouter();
-  const [catalog, setCatalog] = useState<ApiOpenClawCatalog | null>(null);
+  const [catalog, setCatalog] = useState<
+    ApiOpenClawCatalog | ApiCodexCatalog | ApiClaudeCatalog | null
+  >(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
 
@@ -63,7 +66,10 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
   const [heartbeatText, setHeartbeatText] = useState(agent.heartbeatText ?? "");
   const [memoryText, setMemoryText] = useState(agent.memoryText ?? "");
   const [thinkingLevel, setThinkingLevel] = useState<ApiThinkingLevel>(
-    agent.runtime.defaultThinkingLevel
+    normalizeThinkingLevelForRuntime(
+      agent.runtime.kind,
+      agent.runtime.defaultThinkingLevel
+    )
   );
   const [selectedModelId, setSelectedModelId] = useState(
     agent.runtime.defaultModelId ?? ""
@@ -72,6 +78,7 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const iconPickerRef = useRef<HTMLDivElement>(null);
+  const thinkingOptions = getThinkingOptionsForRuntime(agent.runtime.kind);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,7 +87,12 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
       setIsLoadingCatalog(true);
 
       try {
-        const nextCatalog = await getOpenClawCatalog();
+        const nextCatalog =
+          agent.runtime.kind === "codex"
+            ? await getCodexCatalog()
+            : agent.runtime.kind === "claude-code"
+              ? await getClaudeCatalog()
+              : await getOpenClawCatalog();
 
         if (cancelled) {
           return;
@@ -111,7 +123,7 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
         setCatalogError(
           error instanceof ApiError
             ? error.message
-            : "Unable to load the OpenClaw runtime catalog."
+            : "Unable to load the runtime catalog."
         );
       } finally {
         if (!cancelled) {
@@ -125,7 +137,7 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
     return () => {
       cancelled = true;
     };
-  }, [agent.runtime.defaultModelId]);
+  }, [agent.runtime.defaultModelId, agent.runtime.kind]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -250,6 +262,12 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
   const hasSelectedModel =
     Boolean(selectedModelId) &&
     modelOptions.some((model) => model.id === selectedModelId);
+  const runtimeLabel =
+    agent.runtime.kind === "codex"
+      ? "Codex"
+      : agent.runtime.kind === "claude-code"
+        ? "Claude Code"
+        : "OpenClaw";
 
   return (
     <div className="mx-auto max-w-5xl py-12">
@@ -271,8 +289,8 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
           Edit Agent
         </h1>
         <p className="text-on-surface-variant text-base leading-relaxed max-w-2xl">
-          Update the agent’s role, runtime defaults, and synced workspace files.
-          Runtime identity and path bindings stay fixed after provisioning.
+          Update the agent’s role, runtime defaults, and workspace files.
+          Runtime identity and paths cannot be changed after creation.
         </p>
       </header>
 
@@ -322,7 +340,7 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
               01 Identity
             </h2>
             <p className="text-xs text-on-surface-variant/60 leading-relaxed">
-              Public name, role, and visual marker used throughout the operator UI.
+              Name, role, and icon for this agent.
             </p>
           </div>
           <div className="md:col-span-8 space-y-8">
@@ -456,13 +474,13 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
           <div className="md:col-span-8 space-y-10">
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/40 mb-2">
-                System Instructions
+                Directive / AGENTS.md
               </label>
               <textarea
                 value={systemInstructions}
                 onChange={(event) => setSystemInstructions(event.target.value)}
                 className="w-full bg-surface-container-low border-none p-4 text-on-surface font-light text-sm leading-relaxed resize-y min-h-[120px] focus:ring-0 focus:outline-none placeholder:text-on-surface-variant/20"
-                placeholder="Define the core logic, behavioral constraints, and personality of the agent..."
+                placeholder="Define the core logic, behavioral constraints, and directive set of the agent..."
                 rows={5}
               />
             </div>
@@ -496,6 +514,10 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
                   <p className="text-xs text-on-surface-variant/60">
                     {catalogError}
                   </p>
+                ) : isLoadingCatalog ? (
+                  <p className="text-xs text-on-surface-variant/60">
+                    Loading {runtimeLabel} models...
+                  </p>
                 ) : null}
               </div>
               <div className="space-y-4">
@@ -504,22 +526,25 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
                     Thinking Level
                   </label>
                   <span className="text-xs text-secondary font-mono">
-                    {thinkingLevel}
+                    {formatThinkingLevelLabelForRuntime(
+                      agent.runtime.kind,
+                      thinkingLevel
+                    )}
                   </span>
                 </div>
                 <div className="flex gap-2">
-                  {thinkingLevels.map((level) => (
+                  {thinkingOptions.map((level) => (
                     <button
-                      key={level}
+                      key={level.value}
                       type="button"
-                      onClick={() => setThinkingLevel(level)}
+                      onClick={() => setThinkingLevel(level.value)}
                       className={`flex-1 py-2 text-[10px] uppercase tracking-widest font-medium transition-all ${
-                        thinkingLevel === level
+                        thinkingLevel === level.value
                           ? "bg-secondary/15 text-secondary"
                           : "bg-surface-container-low text-on-surface-variant/40 hover:text-on-surface-variant"
                       }`}
                     >
-                      {level}
+                      {level.label}
                     </button>
                   ))}
                 </div>
@@ -534,7 +559,7 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
               03 Workspace Files
             </h2>
             <p className="text-xs text-on-surface-variant/60 leading-relaxed">
-              These values sync into the OpenClaw workspace on save.
+              These values sync into the {runtimeLabel} workspace on save.
             </p>
           </div>
           <div className="md:col-span-8 space-y-6">
@@ -582,7 +607,7 @@ export function EditAgentForm({ agent }: { agent: ApiAgent }) {
                   value={identityText}
                   onChange={(event) => setIdentityText(event.target.value)}
                   className="w-full bg-surface-container-low border-none p-4 text-on-surface font-light text-sm leading-relaxed resize-y min-h-[100px] focus:ring-0 focus:outline-none placeholder:text-on-surface-variant/20"
-                  placeholder={"- Name: Research Lead\n- Vibe: calm, rigorous, precise\n- Emoji: 🔬\n- Avatar: avatars/research-lead.png"}
+                  placeholder={"- Name: Research Lead\n- Tone: calm, rigorous, precise"}
                 />
               </label>
             </div>

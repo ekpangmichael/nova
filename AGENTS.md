@@ -33,7 +33,6 @@ Implemented:
 - websocket broadcasting on `/ws`
 
 Not implemented yet:
-- automations
 - retry and reassign flows
 - real OpenClaw run execution
 

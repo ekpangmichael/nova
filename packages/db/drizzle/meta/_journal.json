@@ -36,6 +36,48 @@
       "when": 1775232600000,
       "tag": "0004_auth_google",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775238000000,
+      "tag": "0005_runtime_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775322000000,
+      "tag": "0006_codex_runtime",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775401200000,
+      "tag": "0007_claude_runtime",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775490000000,
+      "tag": "0008_task_git_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775664000000,
+      "tag": "0009_runtime_enabled",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775832000000,
+      "tag": "0010_task_comment_attachments",
+      "breakpoints": true
     }
   ]
 }

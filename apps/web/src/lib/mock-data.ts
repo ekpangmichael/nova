@@ -477,6 +477,7 @@ export const taskDetails: Record<string, TaskDetail> = {
     priorityColor: "outline",
     assignedAgent: { name: "Sigma-04", role: "Strategic Handoff Lead" },
     workspace: "Marketing Automation / Retention",
+    branch: null,
     deadline: "Nov 15, 2024",
     attachments: [
       { name: "cohort_analysis_q3.pdf", size: "1.8 MB", type: "PDF Document", icon: "description" },
@@ -498,6 +499,7 @@ export const taskDetails: Record<string, TaskDetail> = {
     priorityColor: "error",
     assignedAgent: { name: "Delta-9", role: "Creative Asset Synthesis" },
     workspace: "Marketing Automation / Campaigns",
+    branch: null,
     deadline: "Oct 28, 2024",
     attachments: [
       { name: "landing_wireframes_v2.fig", size: "4.2 MB", type: "Figma File", icon: "design_services" },
@@ -522,6 +524,7 @@ export const taskDetails: Record<string, TaskDetail> = {
     priorityColor: "error",
     assignedAgent: { name: "Agent Vulcan", role: "Deployment & Orchestration" },
     workspace: "Marketing Automation / Lead Ops",
+    branch: null,
     deadline: "Oct 24, 2024",
     attachments: [
       { name: "model_weights_v3.bin", size: "128 MB", type: "Binary Model", icon: "memory" },
@@ -546,6 +549,7 @@ export const taskDetails: Record<string, TaskDetail> = {
     priorityColor: "secondary",
     assignedAgent: { name: "Unassigned", role: "Pending allocation" },
     workspace: "Marketing Automation / Email Ops",
+    branch: null,
     deadline: "Dec 01, 2024",
     attachments: [],
     executionLog: [
@@ -565,6 +569,7 @@ export const taskDetails: Record<string, TaskDetail> = {
     priorityColor: "tertiary",
     assignedAgent: { name: "Psi-Alpha", role: "Semantic Integrity Monitor" },
     workspace: "Marketing Automation / Social",
+    branch: null,
     deadline: "Oct 30, 2024",
     attachments: [
       { name: "brand_voice_v4.2.pdf", size: "3.1 MB", type: "PDF Document", icon: "description" },
@@ -588,6 +593,7 @@ export const taskDetails: Record<string, TaskDetail> = {
     priorityColor: "outline",
     assignedAgent: { name: "Sigma-04", role: "Strategic Handoff Lead" },
     workspace: "Marketing Automation / SEO",
+    branch: null,
     deadline: "Sep 30, 2024",
     attachments: [
       { name: "keyword_report_sept.xlsx", size: "2.1 MB", type: "Spreadsheet", icon: "table_chart" },
