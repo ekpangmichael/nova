@@ -24,7 +24,7 @@ build
 /google_client_secret.json
 temp
 /.tmp/
-/.claude/settings.local.json
+/.claude/
 
 # vitepress
 docs/.vitepress/dist
@@ -38,6 +38,7 @@ yarn-error.log*
 
 # env files
 .env*
+!.env.example
 
 # vercel
 .vercel
