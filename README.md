@@ -28,6 +28,14 @@ pnpm dev
 
 When `pnpm dev` finishes booting, open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
+## Planned npm installer path
+
+This branch also includes a publishable CLI package at [`packages/cli`](packages/cli). Once published, the intended npm-native installer path will be:
+
+```bash
+npx nova-cli@latest setup
+```
+
 ## Quick commands
 
 ```bash
