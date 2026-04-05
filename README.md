@@ -1,49 +1,50 @@
 # Nova
 
-Nova is a local-first orchestration workspace for coding agents. It gives you a web UI for projects, kanban tasks, agent profiles, runtime configuration, execution logs, attachments, and follow-up comments, while keeping your data on your machine.
+Nova is a local-first platform for managing coding agents. It gives you a single dashboard to create projects, assign tasks, run agents on different runtimes, and track everything that happens — without sending your data anywhere.
 
-Nova is for people who want a self-hosted control plane around local coding runtimes such as OpenClaw, Codex, and Claude Code, instead of jumping between separate CLIs and ad hoc notes.
+Instead of jumping between separate CLIs and scattered notes, Nova puts your projects, tasks, agent configurations, execution logs, and follow-up comments in one place, all stored locally on your machine.
 
-## Who Nova is for
+## Why Nova
 
-- Solo builders who want a persistent task board and execution log for local coding agents
-- Small teams experimenting with agent workflows on trusted machines
-- Operators who want one place to manage projects, agents, attachments, task context, and runtime health
+Most agent tooling today is either a hosted service you don't control, or a bare CLI with no memory between sessions. Nova sits in between: a proper management layer that stays local.
+
+- **One interface for multiple runtimes.** Use OpenClaw, Codex, or Claude Code from the same task board. Switch runtimes per agent without changing your workflow.
+- **Persistent context.** Projects, tasks, comments, attachments, and execution history survive across sessions. When something fails, you can see exactly what happened and why.
+- **Local by default.** SQLite database, file attachments, and agent configurations all live on your machine. No accounts, no cloud dependencies, no data leaving your network.
+
+## Who it's for
+
+- Developers using AI coding agents who want structure around their work
+- Small teams running agents on trusted machines who need shared visibility
+- Anyone tired of managing agent context across disconnected tools
 
 ## What works today
 
-- Local web dashboard for projects, agents, tasks, runtimes, settings, and logs
-- Runtime-backed task execution through:
-  - OpenClaw
-  - Codex CLI
-  - Claude Code CLI
-- Task comments, `@agent` handoff, attachments, and execution-log history
-- Agent homes with synced workspace files such as `AGENTS.md`, `SOUL.md`, `TOOLS.md`, and `IDENTITY.md`
-- Local authentication for Nova itself with email/password or Google sign-in
-- LAN development mode for opening Nova from another device on the same network
+- Web dashboard for projects, agents, tasks, runtimes, and settings
+- Task execution through OpenClaw, Codex CLI, and Claude Code CLI
+- Kanban boards with drag-and-drop, priorities, labels, and due dates
+- Task comments with `@agent` mentions for follow-up and handoff
+- File attachments on tasks and comments
+- Agent Homes with synced files like `AGENTS.md`, `SOUL.md`, and `IDENTITY.md`
+- Structured execution logs with streaming output, tool calls, and failure reasons
+- Browser notifications for run completions, failures, and blocked tasks
+- Local auth with email/password or Google sign-in
+- LAN mode for accessing Nova from another device on your network
 
-## Experimental or still evolving
+## What's still evolving
 
-- First-run installer and npm-native install path
+- First-run packaging and `npm`-native install path
 - Runtime ergonomics outside the core OpenClaw path
-- Some long-running Claude and Codex edge cases around retries and CLI behavior
-- Cross-machine usage beyond trusted local or LAN setups
-- Public packaging and release workflow
+- Retry and long-run edge cases for Codex and Claude Code
+- Cross-machine usage beyond local and LAN setups
 
-## Install and run quickly
+## Get started
 
-The current official install path is the one-line bootstrap script:
+Run the bootstrap script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
 ```
-
-That script:
-
-1. clones the newest tagged release when one exists
-2. falls back to the default branch when there are no release tags yet
-3. runs `pnpm install`
-4. runs `pnpm setup`
 
 Then start Nova:
 
@@ -54,75 +55,84 @@ pnpm dev
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000) when startup completes.
 
-If you prefer the manual source flow:
+Or install manually:
 
 ```bash
-git clone https://github.com/ekpangmichael/nova.git nova
+git clone https://github.com/ekpangmichael/nova.git
 cd nova
 pnpm install
 pnpm setup
 pnpm dev
 ```
 
-## Runtime overview
+## Runtimes
 
-Nova supports three real runtime paths today:
+Nova connects to three runtimes today. Each uses its own local CLI and authentication:
 
-| Runtime | How Nova talks to it | Auth model | Models |
+| Runtime | Connection | Auth | Models |
 | --- | --- | --- | --- |
-| OpenClaw | Local CLI + gateway | Your local OpenClaw profile and provider setup | Comes from your local OpenClaw install |
-| Codex | Local Codex CLI | Your local Codex login | Curated confirmed Codex model list |
-| Claude Code | Local Claude CLI | Your local Claude Code login | Curated confirmed Claude model list |
+| OpenClaw | Local CLI + gateway | OpenClaw profile | From your local install |
+| Codex | Codex CLI | ChatGPT login | Curated model list |
+| Claude Code | Claude Code CLI | Anthropic login | Curated model list |
 
-Setup details, model IDs, and caveats are documented here:
+See the [Runtime Setup](docs/getting-started/runtime-setup.md) guide for configuration details.
 
-- [Getting Started](docs/getting-started/index.md)
-- [Installation](docs/getting-started/installation.md)
-- [Runtime Setup](docs/getting-started/runtime-setup.md)
-- [Configuration Reference](docs/operations/configuration-reference.md)
-
-## Quick commands
+## Commands
 
 ```bash
-pnpm setup
-pnpm dev
-pnpm dev:lan
-pnpm typecheck
-pnpm test
-pnpm build
+pnpm setup          # First-time setup
+pnpm dev            # Start Nova (API + web)
+pnpm dev:lan        # Start with LAN access
+pnpm docs:dev       # Start the docs site
+pnpm typecheck      # Type-check all packages
+pnpm test           # Run all tests
+pnpm build          # Production build
 ```
 
-## Local data and environment
+## Project structure
 
-Nova stores local state in `.nova-data/` by default:
+```
+nova/
+  apps/
+    server/          Fastify 5 API + WebSocket server
+    web/             Next.js 16 dashboard
+  packages/
+    shared/          Domain types and contracts
+    db/              Drizzle ORM schema (SQLite)
+    runtime-adapter/ Runtime adapter interface
+    ui/              Shared component library
+    cli/             CLI package (in progress)
+  docs/              Project documentation (VitePress)
+```
+
+## Local data
+
+Nova stores everything in `.nova-data/` by default:
 
 - SQLite database
-- task and comment attachments
-- generated agent homes
-- local logs and temporary files
+- Task and comment attachments
+- Agent Homes
+- Logs and temporary files
 
-Start from [`.env.example`](.env.example). The most useful variables are:
+Copy `.env.example` to `.env` and configure as needed. Key variables:
 
-- `NOVA_RUNTIME_MODE`
-- `NOVA_APP_DATA_DIR`
-- `OPENCLAW_*`
-- `CODEX_*`
-- `CLAUDE_*`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
+| Variable | Purpose |
+| --- | --- |
+| `NOVA_RUNTIME_MODE` | Runtime mode (`live` or `mock`) |
+| `NOVA_APP_DATA_DIR` | Data directory path |
+| `OPENCLAW_*` | OpenClaw CLI and gateway config |
+| `CODEX_*` | Codex CLI config |
+| `CLAUDE_*` | Claude Code CLI config |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (optional) |
 
-## Current installation direction
+## Documentation
 
-Nova already includes:
-
-- a repo-native installer script: `install.sh`
-- a bootstrap step: `pnpm setup`
-- a publishable CLI package under [`packages/cli`](packages/cli)
-
-The intended npm-native flow is:
+Full docs are available at the [docs site](docs/index.md) or by running:
 
 ```bash
-npx nova-cli@latest setup
+pnpm docs:dev
 ```
 
-That path exists in the repo, but it is still part of the packaging work rather than the primary public install channel.
+## License
+
+MIT

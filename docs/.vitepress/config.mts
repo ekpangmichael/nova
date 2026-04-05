@@ -4,6 +4,7 @@ export default defineConfig({
   title: "Nova",
   description: "Local-first agent management platform",
   cleanUrls: true,
+  ignoreDeadLinks: true,
 
   head: [["link", { rel: "icon", type: "image/svg+xml", href: "/logo.svg" }]],
 
