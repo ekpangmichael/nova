@@ -1,62 +1,48 @@
 # Installation
 
-Nova's current official install path is **source install with bootstrap**.
+Nova's current official install path is the repo-native one-line installer.
 
-That means the supported first-run workflow today is:
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
+```
 
-1. clone the repository
-2. install dependencies
-3. run `pnpm setup`
-4. run `pnpm dev`
-
-This keeps the install story simple now, while leaving room for a future standalone installer or npm bootstrap package.
+That script clones the newest tagged release when one exists, falls back to the default branch when the repository does not have release tags yet, then runs Nova's local bootstrap steps.
 
 ---
 
-## 1. Clone the repository
+## 1. One-line installer
 
 ```bash
-git clone <repo-url> nova
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
+```
+
+To install into a different directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --dir my-nova
+```
+
+To pin a specific release or branch:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --ref v0.1.0
+```
+
+The installer does four things:
+
+1. clones Nova into `./nova` by default
+2. installs dependencies with `pnpm install`
+3. runs `pnpm setup`
+4. prints the next steps for starting the app
+
+---
+
+## 2. Start Nova
+
+Run:
+
+```bash
 cd nova
-```
-
----
-
-## 2. Install dependencies
-
-Nova is a pnpm workspace monorepo. Install everything with one command:
-
-```bash
-pnpm install
-```
-
----
-
-## 3. Bootstrap the local workspace
-
-Run:
-
-```bash
-pnpm setup
-```
-
-The bootstrap script does three things:
-
-1. creates `.env.local` from `.env.example` if you do not already have one
-2. ensures the local app-data directory exists
-3. detects local runtime binaries like `openclaw`, `codex`, and `claude`
-
-It does **not** overwrite an existing `.env.local`.
-
-If you want to inspect or change configuration before the first run, edit `.env.local` after this step.
-
----
-
-## 4. Start Nova
-
-Run:
-
-```bash
 pnpm dev
 ```
 
@@ -72,7 +58,21 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser when startup
 
 ---
 
-## LAN access
+## 3. Manual source install
+
+If you prefer not to use the one-line installer, the equivalent manual flow is:
+
+```bash
+git clone <repo-url> nova
+cd nova
+pnpm install
+pnpm setup
+pnpm dev
+```
+
+---
+
+## 4. LAN access
 
 If you want to open Nova from another device on the same network, use:
 
@@ -84,7 +84,7 @@ This exposes the web frontend on your LAN IP and prints the URL to open from ano
 
 ---
 
-## Runtime onboarding
+## 5. Runtime onboarding
 
 Nova can run without external runtimes in mock mode, but most real agent workflows need one or more local runtimes:
 
@@ -96,7 +96,7 @@ Nova will detect installed runtime binaries during `pnpm setup`, and you can fin
 
 ---
 
-## Local data storage
+## 6. Local data storage
 
 Nova stores local state in `.nova-data/` by default, unless overridden by `NOVA_APP_DATA_DIR`.
 
