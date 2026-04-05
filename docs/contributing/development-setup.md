@@ -7,13 +7,16 @@
 
 ## Initial Setup
 
-Clone the repository and install dependencies:
+Clone the repository, install dependencies, and run the bootstrap step:
 
 ```bash
 git clone <repo-url> nova
 cd nova
 pnpm install
+pnpm setup
 ```
+
+`pnpm setup` creates `.env.local` from `.env.example` if needed and performs the same first-run bootstrap described in the public installation guide.
 
 ## Running in Development
 

@@ -1,66 +1,65 @@
 # Nova
 
-Agent Project Manager v1 workspace.
+Nova is a local-first agent orchestration workspace for projects, tasks, and runtime-backed coding agents.
 
-The repo is split into separate frontend and backend apps with shared internal packages:
+It includes:
+- a Next.js dashboard in `apps/web`
+- a Fastify API server in `apps/server`
+- a SQLite-backed local data store in `.nova-data/`
+- runtime adapters for OpenClaw, Codex, and Claude Code
 
-- `apps/web`: existing frontend prototype, preserved as a Next.js 16 app for now
-- `apps/server`: Fastify backend for projects, agents, tasks, runs, monitor, runtime health, and websocket broadcasting
-- `packages/shared`: canonical shared enums and DTOs
-- `packages/db`: Drizzle schema, client, and generated SQLite migrations
-- `packages/runtime-adapter`: runtime adapter contracts plus mock and OpenClaw skeleton support
-- `packages/ui`: shared UI package placeholder
+## Current official install path
 
-## Getting started
-
-Install dependencies:
+Nova's current official install path is **source install with bootstrap**. Until a standalone installer or npm bootstrap package ships, the intended first-run flow is:
 
 ```bash
+git clone <repo-url> nova
+cd nova
 pnpm install
-```
-
-Run both apps together:
-
-```bash
+pnpm setup
 pnpm dev
 ```
 
-Run apps separately:
+`pnpm setup` is the bootstrap step. It:
+- creates `.env.local` from `.env.example` if you do not already have one
+- creates the local app-data directory
+- detects whether `openclaw`, `codex`, and `claude` are available on your machine
+- prints the next steps for local or LAN development
+
+When `pnpm dev` finishes booting, open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+## Quick commands
 
 ```bash
-pnpm dev:web
-pnpm dev:server
-```
-
-Useful workspace commands:
-
-```bash
-pnpm build
-pnpm lint
+pnpm setup
+pnpm dev
+pnpm dev:lan
 pnpm typecheck
 pnpm test
-pnpm db:generate
+pnpm build
 ```
 
-## Current ports
-
-- frontend: `http://localhost:3000`
-- backend: `http://localhost:4000`
-
-## Backend notes
+## Development notes
 
 - App data defaults to `<repo>/.nova-data`.
-- The server stores a file-backed SQLite database at `.nova-data/db/app.db`.
-- Task attachments are stored under `.nova-data/attachments/`.
+- Uploaded task attachments live under `.nova-data/attachments/`.
 - Agent homes are generated under `.nova-data/agent-homes/`.
-- Default runtime mode is `mock`; use `NOVA_RUNTIME_MODE=openclaw` to switch to the OpenClaw process manager skeleton.
+- The combined dev launcher starts the API server on `127.0.0.1:4010` and the web app on `127.0.0.1:3000`.
+- `pnpm dev:lan` exposes the web app to other devices on the same network.
 
 ## Environment
 
-- `PORT`: Fastify listen port. Defaults to `4000`.
-- `NOVA_APP_DATA_DIR`: Override the app-data root.
-- `NOVA_RUNTIME_MODE`: `mock` or `openclaw`.
-- `OPENCLAW_PROFILE`: Runtime profile name. Defaults to `apm`.
-- `OPENCLAW_BINARY_PATH`: OpenClaw binary path. Defaults to `openclaw`.
-- `OPENCLAW_GATEWAY_URL`: Optional gateway URL for runtime health metadata.
-- `NOVA_ENABLE_OPENCLAW_SMOKE`: Enables optional smoke-only OpenClaw checks when set to `1` or `true`.
+Start from [`.env.example`](.env.example). The most useful variables are:
+
+- `NOVA_RUNTIME_MODE`
+- `NOVA_APP_DATA_DIR`
+- `OPENCLAW_*`
+- `CODEX_*`
+- `CLAUDE_*`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+
+The full install and configuration story lives in the docs:
+- [Getting Started](docs/getting-started/index.md)
+- [Installation](docs/getting-started/installation.md)
+- [Configuration Reference](docs/operations/configuration-reference.md)
