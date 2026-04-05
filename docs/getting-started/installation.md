@@ -63,7 +63,7 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser when startup
 If you prefer not to use the one-line installer, the equivalent manual flow is:
 
 ```bash
-git clone <repo-url> nova
+git clone https://github.com/ekpangmichael/nova.git nova
 cd nova
 pnpm install
 pnpm setup
@@ -93,6 +93,8 @@ Nova can run without external runtimes in mock mode, but most real agent workflo
 - Claude Code
 
 Nova will detect installed runtime binaries during `pnpm setup`, and you can finish runtime configuration from the `/runtimes` page after the app is running.
+
+For setup details, authentication expectations, supported models, and caveats, continue to [Runtime Setup](./runtime-setup.md).
 
 ---
 

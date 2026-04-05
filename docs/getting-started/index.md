@@ -1,43 +1,62 @@
 # Getting Started
 
-This section walks you through Nova's current official install path: source install with a bootstrap step. By the end you will have the API server and web frontend running on your machine.
+This section covers the public install path for Nova and the runtime setup needed for real agent work.
 
----
+Nova runs locally as two processes during development:
 
-## Overview
+1. **API server** (`@nova/server`) on port `4010`
+2. **Web frontend** (`@nova/web`) on port `3000`
 
-Nova runs as two processes during development:
+`pnpm dev` starts both services and waits for the API to be healthy before the web app comes up.
 
-1. **API server** (`@nova/server`) -- a Fastify 5 application that exposes REST endpoints and a WebSocket at `/ws`. Defaults to port **4010**.
-2. **Web frontend** (`@nova/web`) -- a Next.js 16 application with Tailwind CSS 4. Defaults to port **3000**.
+## What you will have at the end
 
-A single `pnpm dev` command starts both processes, builds shared dependencies, and orchestrates health checks so the frontend only launches after the API server is ready.
+- Nova running at [http://127.0.0.1:3000](http://127.0.0.1:3000)
+- local app data under `.nova-data/`
+- runtime detection completed for OpenClaw, Codex, and Claude Code
+- enough setup to sign in and start configuring projects, agents, and tasks
 
----
-
-## Sections
+## Guides
 
 | Guide | Description |
 | ----- | ----------- |
-| [Prerequisites](./prerequisites.md) | Required tooling and system requirements |
-| [Installation](./installation.md) | Source install, bootstrap with `pnpm setup`, and run Nova for the first time |
-| [Development Workflow](./development-workflow.md) | Day-to-day dev commands: dev mode, build, test, lint, typecheck |
-| [Project Structure](./project-structure.md) | Monorepo layout, packages, and how they relate |
+| [Prerequisites](./prerequisites.md) | Tooling and environment assumptions |
+| [Installation](./installation.md) | Bootstrap install and first launch |
+| [Runtime Setup](./runtime-setup.md) | OpenClaw, Codex, and Claude auth/setup requirements |
+| [Development Workflow](./development-workflow.md) | Day-to-day local development commands |
+| [Project Structure](./project-structure.md) | Monorepo layout and major packages |
 
----
-
-## Quick Start (TL;DR)
+## Quick start
 
 ```bash
-git clone <repo-url> nova
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
+cd nova
+pnpm dev
+```
+
+If you prefer to install from source manually:
+
+```bash
+git clone https://github.com/ekpangmichael/nova.git nova
 cd nova
 pnpm install
 pnpm setup
 pnpm dev
 ```
 
-`pnpm setup` is the bootstrap command. It creates `.env.local` from `.env.example` when needed, prepares the local data directory, and detects installed runtimes before you launch the app.
+## What is production-ready versus still moving
 
-The dev script then builds shared packages, starts the Fastify server on `http://127.0.0.1:4010`, waits for a healthy response from `/api/health`, then starts the Next.js frontend on `http://127.0.0.1:3000`.
+### Solid today
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser to access Nova.
+- local dashboard and API
+- projects, tasks, attachments, comments, logs, and runtime configuration
+- OpenClaw integration
+- local Codex and Claude Code integrations
+
+### Still evolving
+
+- first-run packaging and installer ergonomics
+- public release workflow
+- some runtime-specific retry and edge-case behavior
+
+If you want to use Nova primarily as an operator dashboard around local coding agents, it is already useful. If you want a polished public installer or a hosted SaaS experience, that is not the current target.

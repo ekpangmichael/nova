@@ -3,101 +3,75 @@ layout: home
 
 hero:
   name: Nova
-  text: Local-first agent management
-  tagline: Create projects, configure AI agents, assign tasks, and monitor execution -- all from a single dashboard on your machine.
+  text: Local-first orchestration for coding agents
+  tagline: Run OpenClaw, Codex, and Claude Code from one local dashboard with projects, tasks, attachments, comments, and replayable execution logs.
   actions:
     - theme: brand
       text: Get Started
       link: /getting-started/
     - theme: alt
-      text: Architecture
-      link: /architecture/
+      text: Runtime Setup
+      link: /getting-started/runtime-setup
 
 features:
-  - title: Multi-Runtime Support
-    details: Run agents on OpenClaw, Claude Code, Codex, or your own custom runtime. Swap backends without changing your workflow.
-  - title: Kanban Boards
-    details: Drag-and-drop task management with status columns, priorities, labels, due dates, and agent assignments.
-  - title: Real-Time Monitoring
-    details: Live dashboard with active run counts, agent statuses, recent failures, and a unified activity feed over WebSocket.
-  - title: Execution Logs
-    details: Full event stream per run -- message deltas, tool invocations, artifacts, usage metrics, and errors -- all persisted and replayable.
+  - title: Local-First Control Plane
+    details: Nova keeps projects, tasks, logs, attachments, and runtime configuration on your machine instead of hiding them behind a hosted control plane.
+  - title: Multi-Runtime Execution
+    details: Use OpenClaw, Codex CLI, or Claude Code CLI from the same task workflow, with runtime-specific model catalogs and health checks.
+  - title: Operator-Friendly Task Flow
+    details: Combine kanban tasks, attachments, comment follow-up, `@agent` routing, execution branches, and run history in one place.
+  - title: Replayable Execution Logs
+    details: Every run keeps structured events, failure reasons, summaries, and runtime metadata so you can audit what happened later.
 ---
 
-## Key Features
+## What Nova is
 
-### Multi-Runtime Support
+Nova is a local orchestration workspace for coding agents. It gives you:
 
-Nova is not locked to a single AI provider. The runtime adapter layer supports multiple execution backends:
+- a Next.js dashboard
+- a Fastify API
+- local SQLite persistence
+- runtime adapters for OpenClaw, Codex, and Claude Code
 
-| Runtime           | Kind              | Description                                      |
-| ----------------- | ----------------- | ------------------------------------------------ |
-| OpenClaw Native   | `openclaw-native` | Direct integration with the OpenClaw CLI          |
-| OpenClaw ACP      | `openclaw-acp`    | OpenClaw via the Agent Communication Protocol     |
-| Claude Code       | `claude-code`     | Anthropic Claude Code CLI as an execution runtime |
-| Codex             | `codex`           | OpenAI Codex CLI as an execution runtime          |
-| Custom            | `custom`          | Bring-your-own runtime adapter                    |
+The goal is simple: let you manage real local agent work without losing context across projects, tasks, branches, comments, and runtime sessions.
 
-Each runtime can be enabled or disabled independently. Nova auto-detects installed binaries and configuration files at startup.
+## What works today
 
-### Kanban Boards
+- project and task management
+- agent creation, import, editing, and runtime configuration
+- task attachments and comment attachments
+- runtime-backed task execution through OpenClaw, Codex CLI, and Claude Code CLI
+- execution logs with terminal summaries and raw payloads
+- browser notifications and local auth for the Nova web app
 
-Every project gets a kanban board with columns mapped to task statuses: Backlog, To Do, In Progress, In Review, Done, Failed, Blocked, Paused, and Canceled. Tasks support drag-and-drop reordering and status transitions. Each task carries priority levels (critical, high, medium, low), labels, due dates, time estimates, and agent assignments.
+## What is still evolving
 
-### Real-Time Monitoring
+- first-run packaging and release workflow
+- runtime ergonomics outside the core OpenClaw path
+- some CLI-specific retry and long-run edge cases
+- broader cross-machine and internet-facing deployment stories
 
-A live dashboard displays:
+## Runtime support
 
-- Active run counts and agent status breakdowns (idle, working, paused, error, offline).
-- Recent failures with failure reasons and links to the originating task.
-- An activity feed covering runs, comments, and assignments.
-- Items requiring attention (failed runs, blocked tasks, agent errors).
+| Runtime | Status | Auth model | Model source |
+| --- | --- | --- | --- |
+| OpenClaw | Supported | Local OpenClaw profile | Your local OpenClaw install |
+| Codex | Supported | Local Codex login | Curated confirmed Codex list |
+| Claude Code | Supported | Local Claude Code login | Curated confirmed Claude list |
 
-WebSocket events broadcast state changes across connected clients so the UI stays current without polling.
+If you are evaluating Nova for actual work, start with the runtime setup guide:
 
-### Comment Threads with @mentions
+- [Runtime Setup](./getting-started/runtime-setup.md)
 
-Tasks support threaded comments from three author types: users, agents, and the system. Comments are sourced from ticket users, agent mirrors, agent API calls, or system events. This creates a unified conversation log linking human instructions and agent responses on every task.
+## Comments and logs
 
-### Execution Logs
+Nova keeps a deliberate split between operator-facing comments and runtime execution logs:
 
-Each task run records a full event stream: run acceptance, start, message deltas, tool invocations, artifact creation, usage metrics, warnings, errors, and completion or failure. The event log is persisted per-attempt so you can replay or audit any run.
+- comments are for follow-up, blockers, questions, handoff, and operator intent
+- execution logs are for streaming runtime output, tool activity, summaries, and failures
 
-### Browser Notifications
+That split matters once you start switching agents, reusing task branches, or auditing a run after the fact.
 
-The web frontend includes a browser notification manager that alerts you to important state changes (run completions, failures, items needing attention) even when the Nova tab is not focused.
+## Next step
 
-### Additional Capabilities
-
-- **Project seeding** -- initialize a project from a Git repository or start from scratch.
-- **Agent provisioning** -- configure agent identity, persona, system instructions, tools, memory, and heartbeat text per agent.
-- **Task dependencies** -- define prerequisite relationships between tasks.
-- **File attachments** -- attach files to tasks with SHA-256 integrity checks.
-- **Run artifacts** -- runs can produce output files classified as input, output, modified, or other.
-- **Git context** -- tasks can track a Git repository root, branch name, and branch URL.
-
----
-
-## Architecture at a Glance
-
-Nova is a monorepo managed with pnpm workspaces. The two main applications are a Fastify 5 API server and a Next.js 16 web frontend. Shared packages provide domain types, the database schema, a UI component library, and the runtime adapter interface.
-
-```
-nova/
-  apps/
-    server/    -- Fastify 5 REST + WebSocket API
-    web/       -- Next.js 16 frontend with Tailwind CSS 4
-  packages/
-    shared/    -- Domain constants, types, and contracts
-    db/        -- Drizzle ORM schema and SQLite persistence
-    runtime-adapter/ -- RuntimeAdapter interface and types
-    ui/        -- Shared UI component library
-```
-
-Data is stored locally in SQLite via Drizzle ORM. There is no external database dependency -- Nova is designed to run entirely on your machine.
-
----
-
-## Next Steps
-
-Head to the [Getting Started](./getting-started/index.md) guide to set up Nova on your machine.
+Head to the [Getting Started](./getting-started/index.md) guide to install Nova and configure your first runtime.

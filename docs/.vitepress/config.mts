@@ -24,6 +24,7 @@ export default defineConfig({
           { text: "Overview", link: "/getting-started/" },
           { text: "Prerequisites", link: "/getting-started/prerequisites" },
           { text: "Installation", link: "/getting-started/installation" },
+          { text: "Runtime Setup", link: "/getting-started/runtime-setup" },
           {
             text: "Development Workflow",
             link: "/getting-started/development-workflow",
@@ -195,7 +196,7 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: "github", link: "https://github.com/your-org/nova" },
+      { icon: "github", link: "https://github.com/ekpangmichael/nova" },
     ],
 
     search: {

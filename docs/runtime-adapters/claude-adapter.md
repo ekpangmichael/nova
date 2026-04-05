@@ -82,7 +82,7 @@ Runs are started by spawning the Claude binary in print mode with stream-json ou
 
 ```
 claude -p --output-format stream-json --verbose --include-partial-messages \
-  --max-turns 20 --permission-mode <mode> --add-dir <agentHomePath> \
+  --max-turns 40 --permission-mode <mode> --add-dir <agentHomePath> \
   [--resume <sessionId>] [--model <model>] [--effort <level>] \
   "<prompt>"
 ```
@@ -97,7 +97,7 @@ Note that unlike Codex, the prompt is passed as a CLI argument rather than throu
 | `--output-format stream-json` | Always | Structured JSON output per line |
 | `--verbose` | Always | Include detailed event information |
 | `--include-partial-messages` | Always | Include partial streaming messages |
-| `--max-turns 20` | Always | Limit agent turns to prevent runaway execution |
+| `--max-turns 40` | Always | Limit agent turns to prevent runaway execution |
 | `--permission-mode <mode>` | Always | `"acceptEdits"` (sandbox on) or `"bypassPermissions"` (sandbox off) |
 | `--add-dir <path>` | Always | Add agent home directory to context |
 | `--resume <sessionId>` | When continuing a session | Resume an existing session |
@@ -167,6 +167,8 @@ The final line in the output. Contains:
 - `usage` -- cumulative token usage
 
 Mapped to `run.completed` (on success) or `run.failed` (on error), with `usage` emitted separately.
+
+If the failure subtype is `error_max_turns`, Nova may auto-continue the same Claude session once when the run clearly made forward progress. That behavior is implemented at the Nova service layer rather than inside the adapter itself.
 
 ## Session Management
 
