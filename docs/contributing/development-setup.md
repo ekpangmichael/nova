@@ -10,7 +10,7 @@
 Clone the repository, install dependencies, and run the bootstrap step:
 
 ```bash
-git clone <repo-url> nova
+git clone https://github.com/ekpangmichael/nova.git nova
 cd nova
 pnpm install
 pnpm setup
@@ -28,7 +28,7 @@ pnpm dev
 
 This runs a development orchestrator script (`scripts/dev.mjs`) that starts:
 
-- **Backend** (Fastify) -- Typically on port 4000 (configurable via `PORT`).
+- **Backend** (Fastify) -- Typically on port 4010 during `pnpm dev`.
 - **Frontend** (Next.js) -- Typically on port 3000.
 
 You can also start them independently:
