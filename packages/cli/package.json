@@ -1,0 +1,32 @@
+{
+  "name": "nova-cli",
+  "version": "0.1.0",
+  "description": "Bootstrap and manage a local Nova workspace",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ekpangmichael/nova.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/ekpangmichael/nova#readme",
+  "bugs": {
+    "url": "https://github.com/ekpangmichael/nova/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "nova": "./bin/nova.mjs"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "keywords": [
+    "nova",
+    "agents",
+    "runtime",
+    "cli"
+  ],
+  "license": "Apache-2.0"
+}

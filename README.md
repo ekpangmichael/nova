@@ -10,7 +10,19 @@ It includes:
 
 ## Current official install path
 
-Nova's current official install path is **source install with bootstrap**. Until a standalone installer or npm bootstrap package ships, the intended first-run flow is:
+Nova now ships with a repo-native one-line installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
+```
+
+That installer:
+- clones the latest tagged release when tags exist
+- falls back to the repository default branch when no release tags exist yet
+- runs `pnpm install`
+- runs `pnpm setup`
+
+The equivalent manual source flow is:
 
 ```bash
 git clone <repo-url> nova
@@ -27,6 +39,14 @@ pnpm dev
 - prints the next steps for local or LAN development
 
 When `pnpm dev` finishes booting, open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+
+## Planned npm installer path
+
+This branch also includes a publishable CLI package at [`packages/cli`](packages/cli). Once published, the intended npm-native installer path will be:
+
+```bash
+npx nova-cli@latest setup
+```
 
 ## Quick commands
 
