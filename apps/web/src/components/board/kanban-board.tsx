@@ -367,7 +367,7 @@ function ColumnHeader({
       {column.id === "backlog" ? (
         <Link
           href={`/tasks/new?projectId=${projectId}`}
-          className="text-on-surface-variant transition-colors hover:text-on-surface"
+          className="text-on-surface-variant/40 transition-colors hover:text-on-surface"
         >
           <Icon name="add" size={16} />
         </Link>
