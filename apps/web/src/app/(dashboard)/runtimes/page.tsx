@@ -71,6 +71,35 @@ function statusLabel(health: ApiRuntimeHealth) {
   }
 }
 
+function hasHealthAdvisories(health: ApiRuntimeHealth) {
+  if (health.status !== "healthy" || health.mode !== "openclaw") {
+    return false;
+  }
+
+  return health.details.some((detail) => {
+    const normalized = detail.trim();
+    return normalized.length > 0 && normalized !== "OpenClaw gateway is reachable.";
+  });
+}
+
+function formatHealthFeedback(options: {
+  health: ApiRuntimeHealth;
+  healthyMessage: string;
+  degradedFallback: string;
+}) {
+  const details = options.health.details.filter((detail) => detail.trim().length > 0);
+
+  if (options.health.status === "healthy") {
+    return options.healthyMessage;
+  }
+
+  if (details.length > 0) {
+    return details.join(" ");
+  }
+
+  return options.degradedFallback;
+}
+
 function StatusDot({ health }: { health: ApiRuntimeHealth }) {
   const isOk = health.status === "healthy";
   const isWarn = health.status === "degraded";
@@ -136,7 +165,10 @@ function OpenClawConfigureModal({
   const [gatewayUrl, setGatewayUrl] = useState(prefill.gatewayUrl ?? "");
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    type: "ok" | "warn" | "err";
+    msg: string;
+  } | null>(null);
 
   const draft = {
     profile,
@@ -167,11 +199,17 @@ function OpenClawConfigureModal({
     try {
       const result = await testOpenClawConfig(draft);
       setFeedback({
-        type: result.health.status === "healthy" ? "ok" : "err",
-        msg:
+        type:
           result.health.status === "healthy"
-            ? "Connection successful — runtime is reachable."
-            : "Runtime responded but needs attention. Check your configuration.",
+            ? hasHealthAdvisories(result.health)
+              ? "warn"
+              : "ok"
+            : "err",
+        msg: formatHealthFeedback({
+          health: result.health,
+          healthyMessage: "Connection successful — runtime is reachable.",
+          degradedFallback: "Runtime responded but needs attention. Check your configuration.",
+        }),
       });
     } catch (e) {
       setFeedback({
@@ -302,6 +340,8 @@ function OpenClawConfigureModal({
               className={`rounded-lg border px-4 py-3 text-sm ${
                 feedback.type === "ok"
                   ? "border-tertiary/20 bg-tertiary/6 text-tertiary/85"
+                  : feedback.type === "warn"
+                    ? "border-secondary/20 bg-secondary/6 text-secondary/85"
                   : "border-error/20 bg-error/8 text-error/85"
               }`}
             >
@@ -1024,7 +1064,7 @@ function OpenClawCard({
 
   return (
     <div className={`group relative overflow-hidden rounded-xl bg-surface-container-low ghost transition-all duration-200 ${!enabled ? "opacity-50" : ""}`}>
-      {isConnected && enabled && (
+      {enabled && isConnected && (
         <div className="absolute left-0 top-0 h-px w-full bg-gradient-to-r from-transparent via-tertiary/30 to-transparent" />
       )}
 
@@ -1440,9 +1480,12 @@ export default function RuntimesPage() {
     }
   }
 
-  const openClawConnected = config?.enabled && config.health.status === "healthy";
-  const codexConnected = codexConfig?.enabled && codexConfig.health.status === "healthy";
-  const claudeConnected = claudeConfig?.enabled && claudeConfig.health.status === "healthy";
+  const openClawEnabled = config?.enabled ?? false;
+  const codexEnabled = codexConfig?.enabled ?? false;
+  const claudeEnabled = claudeConfig?.enabled ?? false;
+  const openClawConnected = openClawEnabled && config?.health.status === "healthy";
+  const codexConnected = codexEnabled && codexConfig?.health.status === "healthy";
+  const claudeConnected = claudeEnabled && claudeConfig?.health.status === "healthy";
   const connectedCount =
     (openClawConnected ? 1 : 0) +
     (codexConnected ? 1 : 0) +
@@ -1450,9 +1493,9 @@ export default function RuntimesPage() {
   const totalCount = staticRuntimes.length + 3;
 
   const activeRuntimes = [
-    ...(openClawConnected ? ["openclaw"] : []),
-    ...(codexConnected ? ["codex"] : []),
-    ...(claudeConnected ? ["claude"] : []),
+    ...(openClawEnabled ? ["openclaw"] : []),
+    ...(codexEnabled ? ["codex"] : []),
+    ...(claudeEnabled ? ["claude"] : []),
   ];
   const configuringStatic = staticRuntimes.find((r) => r.id === configuring);
 
@@ -1508,13 +1551,15 @@ export default function RuntimesPage() {
                     Active
                   </h2>
                 </div>
-                <OpenClawCard
-                  config={config}
-                  onConfigure={() => void handleConfigureOpenClaw()}
-                  onToggleEnabled={(enabled) => void handleToggleOpenClaw(enabled)}
-                  toggling={togglingRuntime === "openclaw"}
-                />
-                {codexConnected && (
+                {openClawEnabled && (
+                  <OpenClawCard
+                    config={config}
+                    onConfigure={() => void handleConfigureOpenClaw()}
+                    onToggleEnabled={(enabled) => void handleToggleOpenClaw(enabled)}
+                    toggling={togglingRuntime === "openclaw"}
+                  />
+                )}
+                {codexEnabled && (
                   <div className="mt-3">
                     <CodexCard
                       config={codexConfig}
@@ -1524,7 +1569,7 @@ export default function RuntimesPage() {
                     />
                   </div>
                 )}
-                {claudeConnected && (
+                {claudeEnabled && (
                   <div className="mt-3">
                     <ClaudeCard
                       config={claudeConfig}
@@ -1546,7 +1591,7 @@ export default function RuntimesPage() {
                 </h2>
               </div>
               <div className="space-y-3">
-                {!openClawConnected && (
+                {!openClawEnabled && (
                   <OpenClawCard
                     config={config}
                     onConfigure={() => void handleConfigureOpenClaw()}
@@ -1554,7 +1599,7 @@ export default function RuntimesPage() {
                     toggling={togglingRuntime === "openclaw"}
                   />
                 )}
-                {!codexConnected && (
+                {!codexEnabled && (
                   <CodexCard
                     config={codexConfig}
                     onConfigure={() => void handleConfigureCodex()}
@@ -1562,7 +1607,7 @@ export default function RuntimesPage() {
                     toggling={togglingRuntime === "codex"}
                   />
                 )}
-                {!claudeConnected && (
+                {!claudeEnabled && (
                   <ClaudeCard
                     config={claudeConfig}
                     onConfigure={() => void handleConfigureClaude()}
