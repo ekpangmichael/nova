@@ -369,11 +369,15 @@ export class NovaService {
   }
 
   async close() {
-    for (const subscription of this.#activeRuns.values()) {
+    const subscriptions = [...this.#activeRuns.values()];
+
+    for (const subscription of subscriptions) {
       if (subscription.unsubscribe) {
         await subscription.unsubscribe();
       }
     }
+
+    await Promise.allSettled(subscriptions.map((subscription) => subscription.queue));
   }
 
   async getAppHealth() {
@@ -4097,12 +4101,18 @@ export class NovaService {
       if (active.unsubscribe) {
         await active.unsubscribe();
       }
-
-      this.#activeRuns.delete(runId);
     }
 
     if (postTerminalAction) {
       await postTerminalAction();
+    }
+
+    if (
+      event.type === "run.completed" ||
+      event.type === "run.failed" ||
+      event.type === "run.aborted"
+    ) {
+      this.#activeRuns.delete(runId);
     }
   }
 
