@@ -77,6 +77,7 @@ type CodexSessionState = {
   runtimeSessionKey: string;
   cwd: string;
   runtimeRunId: string | null;
+  sandboxMode: "workspace" | "off";
   currentProcess: ChildProcessWithoutNullStreams | null;
   bufferedEvents: RuntimeEvent[];
   listeners: Set<Listener>;
@@ -340,6 +341,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     const existingThreadId = this.#normalizeThreadId(
       input.previousRuntimeSessionKey
     );
+    const sandboxMode = input.sandboxMode === "off" ? "off" : "workspace";
     const { threadId, startedAt } = await this.#startTurn({
       runId: input.runId,
       cwd,
@@ -347,12 +349,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       existingThreadId,
       modelOverride: input.modelOverride ?? null,
       thinkingLevel: input.thinkingLevel ?? null,
-      sandboxMode:
-        !input.previousRuntimeSessionKey && input.sandboxMode === "off"
-          ? "off"
-          : !input.previousRuntimeSessionKey
-            ? "workspace"
-            : null,
+      sandboxMode,
     });
 
     return {
@@ -407,7 +404,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       existingThreadId: runtimeSessionKey,
       modelOverride: null,
       thinkingLevel: input.thinkingLevel ?? null,
-      sandboxMode: null,
+      sandboxMode: state.sandboxMode,
       resetBufferedEvents: false,
     });
 
@@ -504,7 +501,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     existingThreadId: string | null;
     modelOverride: string | null;
     thinkingLevel: StartRunInput["thinkingLevel"];
-    sandboxMode: "workspace" | "off" | null;
+    sandboxMode: "workspace" | "off";
     resetBufferedEvents?: boolean;
   }) {
     const startedAt = nowIso();
@@ -561,6 +558,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       this.#resetStateForNewTurn(currentState, {
         runId: input.runId,
         cwd: input.cwd,
+        sandboxMode: input.sandboxMode ?? currentState.sandboxMode,
         resetBufferedEvents: input.resetBufferedEvents ?? true,
       });
       currentState.currentProcess = child;
@@ -835,7 +833,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     cwd: string;
     modelOverride: string | null;
     thinkingLevel: StartRunInput["thinkingLevel"];
-    sandboxMode: "workspace" | "off" | null;
+    sandboxMode: "workspace" | "off";
   }) {
     const args = ["exec"];
 
@@ -862,7 +860,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       );
     }
 
-    if (!input.existingThreadId && input.sandboxMode === "workspace") {
+    if (input.sandboxMode === "workspace") {
       args.push("--sandbox", "workspace-write");
     } else if (input.sandboxMode === "off") {
       args.push("--dangerously-bypass-approvals-and-sandbox");
@@ -890,6 +888,7 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
       runtimeSessionKey,
       cwd,
       runtimeRunId: null,
+      sandboxMode: "workspace",
       currentProcess: null,
       bufferedEvents: [],
       listeners: new Set(),
@@ -910,11 +909,13 @@ export class CodexRuntimeAdapter implements RuntimeAdapter {
     input: {
       runId: string | null;
       cwd: string;
+      sandboxMode: "workspace" | "off";
       resetBufferedEvents: boolean;
     }
   ) {
     state.cwd = input.cwd;
     state.runtimeRunId = input.runId;
+    state.sandboxMode = input.sandboxMode;
     state.currentProcess = null;
     state.currentTurnCompleted = false;
     state.stopRequested = false;

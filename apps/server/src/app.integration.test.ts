@@ -223,14 +223,20 @@ const createMockCodexCli = async (
   options?: {
     version?: string;
     loginStatus?: string;
+    argLogPath?: string;
   }
 ) => {
   const binaryPath = join(rootDir, "mock-codex");
   const threadId = "11111111-1111-4111-8111-111111111111";
   const script = `#!/usr/bin/env node
+const fs = require("node:fs");
 const args = process.argv.slice(2);
 const THREAD_ID = ${JSON.stringify(threadId)};
+const ARG_LOG_PATH = ${JSON.stringify(options?.argLogPath ?? null)};
 const write = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
+if (ARG_LOG_PATH) {
+  fs.appendFileSync(ARG_LOG_PATH, JSON.stringify(args) + "\\n");
+}
 if (args.length === 1 && args[0] === "--version") {
   process.stdout.write(${JSON.stringify(options?.version ?? "codex-cli 0.117.0")} + "\\n");
   process.exit(0);
@@ -1486,6 +1492,7 @@ describe("server integration", () => {
     const appDataDir = await mkdtemp(join(tmpdir(), "nova-codex-run-"));
     const codexStateDir = join(appDataDir, "codex-home");
     const codexConfigPath = join(codexStateDir, "config.toml");
+    const codexArgLogPath = join(appDataDir, "codex-args.log");
     await mkdir(codexStateDir, { recursive: true });
     await writeFile(codexConfigPath, 'model = "gpt-5.4"\n', "utf8");
     await writeFile(
@@ -1498,7 +1505,9 @@ describe("server integration", () => {
       }),
       "utf8"
     );
-    const codexBinaryPath = await createMockCodexCli(appDataDir);
+    const codexBinaryPath = await createMockCodexCli(appDataDir, {
+      argLogPath: codexArgLogPath,
+    });
 
     currentAppDataDir = appDataDir;
     currentContext = await createApp({
@@ -1669,6 +1678,22 @@ describe("server integration", () => {
     );
     expect(secondRunRows[1].runtimeSessionKey).toBe(
       "11111111-1111-4111-8111-111111111111"
+    );
+
+    const codexInvocations = (await readFile(codexArgLogPath, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[])
+      .filter((args) => args[0] === "exec");
+
+    expect(codexInvocations).toHaveLength(2);
+    expect(codexInvocations[0]).toContain(
+      "--dangerously-bypass-approvals-and-sandbox"
+    );
+    expect(codexInvocations[1]).toContain("resume");
+    expect(codexInvocations[1]).toContain(
+      "--dangerously-bypass-approvals-and-sandbox"
     );
   });
 
