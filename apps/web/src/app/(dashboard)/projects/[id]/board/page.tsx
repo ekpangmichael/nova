@@ -171,24 +171,33 @@ export default async function BoardPage({
           <div className="mx-auto max-w-4xl pb-16">
             {/* Header */}
             <div className="mb-6 anim-1">
-              <div className="flex items-center gap-3">
-                <Link
-                  href={`/projects/${id}`}
-                  className="flex shrink-0 items-center gap-1.5 text-[13px] text-on-surface-variant/40 transition-colors hover:text-on-surface-variant/70"
-                >
-                  <Icon name="arrow_back" size={14} />
-                </Link>
-                <ProjectBoardSelector
-                  currentProjectId={id}
-                  projects={projects.map((entry) => ({
-                    id: entry.id,
-                    name: entry.name,
-                  }))}
-                />
-                <span className="text-outline-variant/15">|</span>
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] text-on-surface-variant/40">{project.name}</p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Link
+                    href={`/projects/${id}`}
+                    className="flex shrink-0 items-center gap-1.5 text-[13px] text-on-surface-variant/40 transition-colors hover:text-on-surface-variant/70"
+                  >
+                    <Icon name="arrow_back" size={14} />
+                  </Link>
+                  <ProjectBoardSelector
+                    currentProjectId={id}
+                    projects={projects.map((entry) => ({
+                      id: entry.id,
+                      name: entry.name,
+                    }))}
+                  />
+                  <span className="text-outline-variant/15">|</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] text-on-surface-variant/40">{project.name}</p>
+                  </div>
                 </div>
+                <Link
+                  href={`/tasks/new?projectId=${id}`}
+                  className="flex items-center gap-2 rounded-md bg-secondary/15 px-4 py-2.5 text-[12px] font-semibold text-secondary transition-colors hover:bg-secondary/20"
+                >
+                  <Icon name="add" size={16} />
+                  New task
+                </Link>
               </div>
             </div>
 
