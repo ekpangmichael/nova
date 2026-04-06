@@ -319,11 +319,9 @@ export class OpenClawProcessManager {
         issue.detail ? `${issue.message} (${issue.detail})` : issue.message ?? ""
       ).filter(Boolean) ?? [];
 
+    const isRpcReachable = Boolean(gatewayStatus?.rpc?.ok);
     const health: RuntimeHealth = {
-      status:
-        gatewayStatus?.health?.healthy && gatewayStatus?.rpc?.ok
-          ? "healthy"
-          : "degraded",
+      status: isRpcReachable ? "healthy" : "degraded",
       mode: "openclaw",
       profile: this.#env.openclawProfile,
       gatewayUrl,
@@ -335,7 +333,7 @@ export class OpenClawProcessManager {
       details:
         details.length > 0
           ? details
-          : gatewayStatus?.health?.healthy
+          : isRpcReachable
             ? ["OpenClaw gateway is reachable."]
             : ["OpenClaw gateway is not healthy or not reachable."],
       updatedAt: nowIso(),
