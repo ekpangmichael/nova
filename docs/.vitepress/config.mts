@@ -178,6 +178,18 @@ export default defineConfig({
         collapsed: true,
         items: [
           {
+            text: "Support Boundaries",
+            link: "/operations/support-boundaries",
+          },
+          {
+            text: "Public Repo Boundaries",
+            link: "/operations/public-repo-boundaries",
+          },
+          {
+            text: "Release Process",
+            link: "/operations/release-process",
+          },
+          {
             text: "Configuration Reference",
             link: "/operations/configuration-reference",
           },
