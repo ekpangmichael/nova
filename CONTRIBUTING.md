@@ -48,7 +48,12 @@ pnpm docs:dev
 
 - Branch from `main`.
 - Use descriptive branch names.
-- Write commit messages that explain the user-facing or architectural change, not just the file list.
+- Use conventional commit messages whenever possible:
+  - `feat: ...`
+  - `fix: ...`
+  - `docs: ...`
+  - `chore: ...`
+- Use `!` or `BREAKING CHANGE:` when a release should be treated as a major version bump.
 
 ## Pull requests
 
@@ -64,6 +69,14 @@ If the change affects runtimes, mention which runtimes were verified:
 - OpenClaw
 - Codex
 - Claude Code
+
+Before asking for review, run:
+
+```bash
+pnpm ci:verify
+```
+
+Nova's public release flow is driven by semantic-release, so commit message quality affects versioning and release notes.
 
 ## Reporting bugs
 

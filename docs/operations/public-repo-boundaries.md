@@ -44,3 +44,6 @@ Before pushing to the public repository:
 1. inspect `git status`
 2. confirm no secrets or local state are staged
 3. confirm new files are source, docs, tests, or templates only
+
+For user-facing storage, data-flow, and deployment boundaries, see
+[Support Boundaries](./support-boundaries.md).
