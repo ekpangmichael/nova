@@ -132,6 +132,65 @@ describe("OpenClawProcessManager", () => {
     expect(main?.subagents?.allowAgents).toEqual(["atlas", "research-lead"]);
   });
 
+  it("adds provisioned agents to the nested agents.list allowlist shape", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "nova-openclaw-process-nested-"));
+    const stateDir = join(rootDir, ".openclaw");
+    const configPath = join(stateDir, "openclaw.json");
+    tempDirs.push(rootDir);
+    await mkdir(stateDir, { recursive: true });
+
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          agents: {
+            list: [
+              {
+                id: "main",
+                subagents: {
+                  allowAgents: ["atlas"],
+                },
+              },
+            ],
+          },
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const binaryPath = await createMockOpenClawBinary(rootDir);
+    const manager = new OpenClawProcessManager(
+      createEnvStub({
+        rootDir,
+        binaryPath,
+        stateDir,
+        configPath,
+      })
+    );
+
+    await manager.provisionAgent({
+      runtimeAgentId: "nova",
+      workspacePath: join(stateDir, "workspace-nova"),
+      runtimeStatePath: join(stateDir, "agents", "nova", "agent"),
+      defaultModelId: "openai-codex/gpt-5.4",
+    });
+
+    const parsed = JSON.parse(await readFile(configPath, "utf8")) as {
+      agents?: {
+        list?: Array<{
+          id: string;
+          subagents?: {
+            allowAgents?: string[];
+          };
+        }>;
+      };
+    };
+    const main = parsed.agents?.list?.find((entry) => entry.id === "main");
+    expect(main?.subagents?.allowAgents).toEqual(["atlas", "nova"]);
+  });
+
   it("removes deleted agents from the config and local OpenClaw folders", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "nova-openclaw-delete-"));
     const stateDir = join(rootDir, ".openclaw");

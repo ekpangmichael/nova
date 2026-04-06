@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
@@ -94,6 +94,90 @@ function slugifyAgentId(value: string) {
 
 function applyAgentIdTemplate(template: string, runtimeAgentId: string) {
   return template.replace("<agentId>", runtimeAgentId || "new-agent");
+}
+
+function getOpenClawPathTemplates(config: ApiOpenClawConfigSnapshot | null) {
+  const stateDir =
+    config?.current.stateDir ||
+    config?.detected.stateDir ||
+    "~/.openclaw";
+
+  return {
+    workspacePathTemplate: `${stateDir}/workspace-<agentId>`,
+    runtimeStatePathTemplate: `${stateDir}/agents/<agentId>/agent`,
+  };
+}
+
+/* ── Creation progress ── */
+
+const CREATION_STEPS = [
+  { label: "Registering agent", icon: "person_add" },
+  { label: "Setting up workspace", icon: "folder_open" },
+  { label: "Writing agent files", icon: "edit_note" },
+  { label: "Configuring runtime", icon: "settings" },
+  { label: "Finalizing", icon: "check_circle" },
+] as const;
+
+function useCreationProgress(isSubmitting: boolean) {
+  const [stepIndex, setStepIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isSubmitting) {
+      setStepIndex(0);
+      return;
+    }
+
+    const delays = [1800, 2500, 2000, 2500];
+    let timeout: ReturnType<typeof setTimeout>;
+    let current = 0;
+
+    function advance() {
+      if (current < delays.length) {
+        timeout = setTimeout(() => {
+          current++;
+          setStepIndex(current);
+          advance();
+        }, delays[current]);
+      }
+    }
+    advance();
+
+    return () => clearTimeout(timeout);
+  }, [isSubmitting]);
+
+  return stepIndex;
+}
+
+function CreationProgress({ stepIndex }: { stepIndex: number }) {
+  return (
+    <div className="flex flex-col gap-4 rounded-lg bg-surface-container-low px-5 py-4">
+      <div className="flex items-center gap-3">
+        <div className="relative flex h-5 w-5 items-center justify-center">
+          <svg className="animate-spin h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </div>
+        <span className="text-sm font-medium text-on-surface">
+          {CREATION_STEPS[stepIndex].label}...
+        </span>
+      </div>
+      <div className="flex gap-1.5">
+        {CREATION_STEPS.map((step, i) => (
+          <div
+            key={step.label}
+            className={`h-1 flex-1 rounded-full transition-all duration-500 ${
+              i < stepIndex
+                ? "bg-primary"
+                : i === stepIndex
+                  ? "bg-primary/50 animate-pulse"
+                  : "bg-outline-variant/15"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ── Step indicator ── */
@@ -490,7 +574,6 @@ function OpenClawAgentForm({
 }) {
   const router = useRouter();
   const [catalog, setCatalog] = useState<ApiOpenClawCatalog | null>(null);
-  const [config, setConfig] = useState<ApiOpenClawConfigSnapshot | null>(runtimeConfig);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true);
 
@@ -513,19 +596,18 @@ function OpenClawAgentForm({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
+  const creationStep = useCreationProgress(isSubmitting);
+  const config = runtimeConfig;
+  const openclawDefaults = catalog?.defaults ?? getOpenClawPathTemplates(config);
 
   useEffect(() => {
     let cancelled = false;
     async function loadCatalog() {
       setIsLoadingCatalog(true);
       try {
-        const [nextCatalog, nextConfig] = await Promise.all([
-          getOpenClawCatalog(),
-          getOpenClawConfig(),
-        ]);
+        const nextCatalog = await getOpenClawCatalog();
         if (cancelled) return;
         setCatalog(nextCatalog);
-        setConfig(nextConfig);
         setCatalogError(null);
         setSelectedModelId(
           nextCatalog.defaults.defaultModelId ??
@@ -545,12 +627,12 @@ function OpenClawAgentForm({
   }, []);
 
   const runtimeAgentId = slugifyAgentId(runtimeAgentIdInput) || slugifyAgentId(name) || "new-agent";
-  const previewWorkspacePath = !catalog
-    ? workspacePathOverride
-    : workspacePathOverride || applyAgentIdTemplate(catalog.defaults.workspacePathTemplate, runtimeAgentId);
-  const previewRuntimeStatePath = !catalog
-    ? runtimeStatePathOverride
-    : runtimeStatePathOverride || applyAgentIdTemplate(catalog.defaults.runtimeStatePathTemplate, runtimeAgentId);
+  const previewWorkspacePath =
+    workspacePathOverride ||
+    applyAgentIdTemplate(openclawDefaults.workspacePathTemplate, runtimeAgentId);
+  const previewRuntimeStatePath =
+    runtimeStatePathOverride ||
+    applyAgentIdTemplate(openclawDefaults.runtimeStatePathTemplate, runtimeAgentId);
 
   async function handleBrowseWorkspace() {
     setErrorMessage(null);
@@ -625,7 +707,9 @@ function OpenClawAgentForm({
           <p className="text-[13px] font-medium text-on-surface">OpenClaw Runtime</p>
           <p className="text-[11px] text-on-surface-variant/40">
             {isLoadingCatalog
-              ? "Loading catalog..."
+              ? config?.health.status === "healthy"
+                ? "Connected · loading models…"
+                : "Loading runtime details..."
               : config?.enabled === false
                 ? "Disabled in runtime settings"
               : catalog
@@ -726,7 +810,7 @@ function OpenClawAgentForm({
                   <span className="text-[10px] uppercase tracking-widest text-on-surface-variant/50">Workspace Override</span>
                   <input type="text" value={workspacePathOverride} onChange={(e) => setWorkspacePathOverride(e.target.value)}
                     className="ghost w-full bg-surface-container px-4 py-2.5 font-mono text-[13px] text-on-surface outline-none"
-                    placeholder={catalog?.defaults.workspacePathTemplate} spellCheck={false} />
+                    placeholder={openclawDefaults.workspacePathTemplate} spellCheck={false} />
                 </label>
                 <button type="button" onClick={handleBrowseWorkspace} disabled={isPickingWorkspace || isSubmitting}
                   className="ghost px-4 py-2.5 text-[10px] uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-50">
@@ -737,7 +821,7 @@ function OpenClawAgentForm({
                 <span className="text-[10px] uppercase tracking-widest text-on-surface-variant/50">Runtime State Override</span>
                 <input type="text" value={runtimeStatePathOverride} onChange={(e) => setRuntimeStatePathOverride(e.target.value)}
                   className="ghost w-full bg-surface-container px-4 py-2.5 font-mono text-[13px] text-on-surface outline-none"
-                  placeholder={catalog?.defaults.runtimeStatePathTemplate} spellCheck={false} />
+                  placeholder={openclawDefaults.runtimeStatePathTemplate} spellCheck={false} />
               </label>
             </div>
           )}
@@ -767,14 +851,17 @@ function OpenClawAgentForm({
         </div>
       )}
 
+      {/* Creation progress */}
+      {isSubmitting && <CreationProgress stepIndex={creationStep} />}
+
       {/* Footer */}
       <div className="pt-12 ghost-t flex flex-col md:flex-row items-center justify-between gap-6">
-        <button type="button" onClick={onBack}
-          className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors">
+        <button type="button" onClick={onBack} disabled={isSubmitting}
+          className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-50">
           <Icon name="arrow_back" size={16} /> Change runtime
         </button>
         <div className="flex items-center gap-4 w-full md:w-auto">
-          <Link href="/agents" className="flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all text-center">
+          <Link href="/agents" className={`flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all text-center ${isSubmitting ? "pointer-events-none opacity-50" : ""}`}>
             Cancel
           </Link>
           <button type="submit" disabled={isSubmitting || isLoadingCatalog || !catalog?.available || config?.enabled === false}
@@ -815,6 +902,7 @@ function CodexAgentForm({ onBack }: { onBack: () => void }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
+  const creationStep = useCreationProgress(isSubmitting);
 
   const runtimeAgentId = slugifyAgentId(runtimeAgentIdInput) || slugifyAgentId(name) || "new-agent";
 
@@ -1164,13 +1252,17 @@ function CodexAgentForm({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
+      {/* Creation progress */}
+      {isSubmitting && <CreationProgress stepIndex={creationStep} />}
+
       {/* Footer */}
       <div className="pt-12 ghost-t flex flex-col md:flex-row items-center justify-between gap-6">
-        <button type="button" onClick={onBack} className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors">
+        <button type="button" onClick={onBack} disabled={isSubmitting}
+          className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-50">
           <Icon name="arrow_back" size={16} /> Change runtime
         </button>
         <div className="flex items-center gap-4 w-full md:w-auto">
-          <Link href="/agents" className="flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all text-center">Cancel</Link>
+          <Link href="/agents" className={`flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all text-center ${isSubmitting ? "pointer-events-none opacity-50" : ""}`}>Cancel</Link>
           <button type="submit" disabled={isSubmitting || isLoadingCatalog || config?.health.status !== "healthy" || config?.enabled === false}
             className="flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium bg-primary text-on-primary hover:opacity-80 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">
             {isSubmitting ? "Creating..." : "Create Agent"}
@@ -1209,6 +1301,7 @@ function ClaudeCodeAgentForm({ onBack }: { onBack: () => void }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPickingWorkspace, setIsPickingWorkspace] = useState(false);
+  const creationStep = useCreationProgress(isSubmitting);
 
   const runtimeAgentId = slugifyAgentId(runtimeAgentIdInput) || slugifyAgentId(name) || "new-agent";
 
@@ -1554,13 +1647,17 @@ function ClaudeCodeAgentForm({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
+      {/* Creation progress */}
+      {isSubmitting && <CreationProgress stepIndex={creationStep} />}
+
       {/* Footer */}
       <div className="pt-12 ghost-t flex flex-col md:flex-row items-center justify-between gap-6">
-        <button type="button" onClick={onBack} className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors">
+        <button type="button" onClick={onBack} disabled={isSubmitting}
+          className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-50">
           <Icon name="arrow_back" size={16} /> Change runtime
         </button>
         <div className="flex items-center gap-4 w-full md:w-auto">
-          <Link href="/agents" className="flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all text-center">Cancel</Link>
+          <Link href="/agents" className={`flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-all text-center ${isSubmitting ? "pointer-events-none opacity-50" : ""}`}>Cancel</Link>
           <button type="submit" disabled={isSubmitting || isLoadingCatalog || config?.health.status !== "healthy" || config?.enabled === false}
             className="flex-1 md:flex-none px-8 py-3 rounded-sm text-sm font-medium bg-primary text-on-primary hover:opacity-80 transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50">
             {isSubmitting ? "Creating..." : "Create Agent"}

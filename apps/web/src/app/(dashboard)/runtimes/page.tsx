@@ -9,14 +9,12 @@ import {
   type ApiCodexCatalog,
   type ApiCodexConfigSnapshot,
   ApiError,
-  type ApiOpenClawCatalog,
   type ApiOpenClawConfigSnapshot,
   type ApiRuntimeHealth,
   getClaudeCatalog,
   getClaudeConfig,
   getCodexCatalog,
   getCodexConfig,
-  getOpenClawCatalog,
   getOpenClawConfig,
   selectDirectory,
   setClaudeEnabled,
@@ -144,12 +142,10 @@ function StaticStatusBadge({ status }: { status: "connected" | "available" }) {
 /* ── OpenClaw configure modal (simplified) ── */
 
 function OpenClawConfigureModal({
-  catalog,
   config,
   onClose,
   onSaved,
 }: {
-  catalog: ApiOpenClawCatalog;
   config: ApiOpenClawConfigSnapshot;
   onClose: () => void;
   onSaved: (snapshot: ApiOpenClawConfigSnapshot) => void;
@@ -1317,14 +1313,12 @@ function RuntimeCard({
 /* ── Page ── */
 
 export default function RuntimesPage() {
-  const [catalog, setCatalog] = useState<ApiOpenClawCatalog | null>(null);
   const [config, setConfig] = useState<ApiOpenClawConfigSnapshot | null>(null);
   const [codexCatalog, setCodexCatalog] = useState<ApiCodexCatalog | null>(null);
   const [codexConfig, setCodexConfig] = useState<ApiCodexConfigSnapshot | null>(null);
   const [claudeCatalog, setClaudeCatalog] = useState<ApiClaudeCatalog | null>(null);
   const [claudeConfig, setClaudeConfig] = useState<ApiClaudeConfigSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
-  const [catalogLoading, setCatalogLoading] = useState(false);
   const [codexCatalogLoading, setCodexCatalogLoading] = useState(false);
   const [claudeCatalogLoading, setClaudeCatalogLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1366,25 +1360,6 @@ export default function RuntimesPage() {
   async function handleConfigureOpenClaw() {
     setError(null);
     setConfiguring("openclaw");
-
-    if (catalog || catalogLoading) {
-      return;
-    }
-
-    setCatalogLoading(true);
-    try {
-      const nextCatalog = await getOpenClawCatalog();
-      setCatalog(nextCatalog);
-    } catch (e) {
-      setError(
-        e instanceof ApiError
-          ? e.message
-          : "Unable to load detailed OpenClaw runtime data."
-      );
-      setConfiguring(null);
-    } finally {
-      setCatalogLoading(false);
-    }
   }
 
   async function handleConfigureCodex() {
@@ -1630,37 +1605,13 @@ export default function RuntimesPage() {
 
       {/* OpenClaw configure modal */}
       {configuring === "openclaw" && config && (
-        catalog ? (
-          <OpenClawConfigureModal
-            catalog={catalog}
-            config={config}
-            onClose={() => setConfiguring(null)}
-            onSaved={(snapshot) => {
-              setConfig(snapshot);
-              setCatalog((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      health: snapshot.health,
-                      configPath: snapshot.current.configPath,
-                      stateDir: snapshot.current.stateDir,
-                      gateway: {
-                        ...prev.gateway,
-                        url: snapshot.health.gatewayUrl,
-                      },
-                    }
-                  : prev
-              );
-            }}
-          />
-        ) : (
-          <RuntimeLoadingModal
-            title="Loading OpenClaw details"
-            message="Fetching model catalog and agent details from the local runtime."
-            activityLabel="Connecting to OpenClaw…"
-            onClose={() => setConfiguring(null)}
-          />
-        )
+        <OpenClawConfigureModal
+          config={config}
+          onClose={() => setConfiguring(null)}
+          onSaved={(snapshot) => {
+            setConfig(snapshot);
+          }}
+        />
       )}
 
       {configuring === "codex" && codexConfig && (

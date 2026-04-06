@@ -24,6 +24,7 @@ const createTaskSchema = z.object({
     .optional(),
   priority: z.enum(["critical", "high", "medium", "low"]).optional(),
   assignedAgentId: z.string().uuid(),
+  handoffAgentId: z.string().uuid().nullable().optional(),
   executionTargetOverride: z.string().nullable().optional(),
   dueAt: z.string().nullable().optional(),
   estimatedMinutes: z.number().int().positive().nullable().optional(),

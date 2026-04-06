@@ -123,6 +123,7 @@ export type TaskDetail = {
   priority: string;
   priorityColor: "error" | "tertiary" | "secondary" | "primary" | "outline";
   assignedAgent: { name: string; role: string };
+  handoffAgent: { name: string; role: string } | null;
   workspace: string;
   branch: { name: string; url: string | null } | null;
   deadline: string;

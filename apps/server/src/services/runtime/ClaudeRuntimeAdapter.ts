@@ -571,6 +571,26 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
       stdio: ["ignore", "pipe", "pipe"],
     });
 
+    const releaseTurnProcess = () => {
+      if (currentState && currentState.currentProcess === child) {
+        currentState.currentProcess = null;
+        currentState.stopRequested = false;
+      }
+
+      if (child.exitCode !== null || child.signalCode !== null || child.killed) {
+        return;
+      }
+
+      child.kill("SIGINT");
+
+      const forceKill = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null && !child.killed) {
+          child.kill("SIGKILL");
+        }
+      }, STOP_KILL_TIMEOUT_MS);
+      forceKill.unref?.();
+    };
+
     let resolvedSessionId: string | null = input.existingSessionId;
     let currentState =
       resolvedSessionId && this.#sessions.has(resolvedSessionId)
@@ -677,37 +697,41 @@ export class ClaudeRuntimeAdapter implements RuntimeAdapter {
         if (parsed.type === "result") {
           terminalEventSeen = true;
 
-          if (parsed.usage && Object.keys(parsed.usage).length > 0) {
-            await this.#emit(currentState.runtimeSessionKey, {
-              type: "usage",
-              at: eventAt,
-              data: parsed.usage,
-            });
-          }
+          try {
+            if (parsed.usage && Object.keys(parsed.usage).length > 0) {
+              await this.#emit(currentState.runtimeSessionKey, {
+                type: "usage",
+                at: eventAt,
+                data: parsed.usage,
+              });
+            }
 
-          if (!parsed.is_error && parsed.subtype === "success") {
+            if (!parsed.is_error && parsed.subtype === "success") {
+              await this.#emit(currentState.runtimeSessionKey, {
+                type: "run.completed",
+                at: eventAt,
+                data: {
+                  runtimeRunId: currentState.runtimeRunId,
+                  finalSummary:
+                    currentState.lastAssistantMessage ??
+                    (typeof parsed.result === "string" ? parsed.result : null) ??
+                    "Claude completed the task.",
+                },
+              });
+              return;
+            }
+
             await this.#emit(currentState.runtimeSessionKey, {
-              type: "run.completed",
+              type: "run.failed",
               at: eventAt,
               data: {
                 runtimeRunId: currentState.runtimeRunId,
-                finalSummary:
-                  currentState.lastAssistantMessage ??
-                  (typeof parsed.result === "string" ? parsed.result : null) ??
-                  "Claude completed the task.",
+                reason: this.#buildResultFailureMessage(parsed),
               },
             });
-            return;
+          } finally {
+            releaseTurnProcess();
           }
-
-          await this.#emit(currentState.runtimeSessionKey, {
-            type: "run.failed",
-            at: eventAt,
-            data: {
-              runtimeRunId: currentState.runtimeRunId,
-              reason: this.#buildResultFailureMessage(parsed),
-            },
-          });
         }
       })().catch((error) => {
         if (!startResolved) {

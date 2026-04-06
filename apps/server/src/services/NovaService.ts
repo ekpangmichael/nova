@@ -162,6 +162,7 @@ type CreateTaskInput = {
   status?: TaskStatus;
   priority?: TaskPriority;
   assignedAgentId: string;
+  handoffAgentId?: string | null;
   executionTargetOverride?: string | null;
   dueAt?: string | null;
   estimatedMinutes?: number | null;
@@ -178,6 +179,8 @@ type AddCommentInput = {
   attachments?: CommentAttachmentInput[];
   thinkingLevel?: ThinkingLevel | null;
 };
+
+const AUTO_HANDOFF_EXTERNAL_MESSAGE_ID = "auto_handoff";
 
 type CreateCommentRecordInput = {
   taskId: string;
@@ -366,11 +369,15 @@ export class NovaService {
   }
 
   async close() {
-    for (const subscription of this.#activeRuns.values()) {
+    const subscriptions = [...this.#activeRuns.values()];
+
+    for (const subscription of subscriptions) {
       if (subscription.unsubscribe) {
         await subscription.unsubscribe();
       }
     }
+
+    await Promise.allSettled(subscriptions.map((subscription) => subscription.queue));
   }
 
   async getAppHealth() {
@@ -1976,6 +1983,12 @@ export class NovaService {
       input.assignedAgentId,
       input.projectId
     );
+    const handoffAgentId = input.handoffAgentId?.trim() || null;
+
+    if (handoffAgentId) {
+      await this.#getAgentRow(handoffAgentId);
+    }
+
     const target = this.#resolveExecutionTarget(
       agent.agentHomePath,
       project.projectRoot,
@@ -2007,6 +2020,7 @@ export class NovaService {
           status: input.status ?? "todo",
           priority: input.priority ?? "medium",
           assignedAgentId: input.assignedAgentId,
+          handoffAgentId,
           executionTargetOverride:
             input.executionTargetOverride !== undefined &&
             input.executionTargetOverride !== null
@@ -2057,7 +2071,16 @@ export class NovaService {
     }
 
     const nextAgentId = patch.assignedAgentId ?? current.assignedAgentId;
+    const nextHandoffAgentId =
+      patch.handoffAgentId !== undefined
+        ? patch.handoffAgentId?.trim() || null
+        : current.handoffAgentId;
     const agent = await this.#getAssignedAgentForProject(nextAgentId, current.projectId);
+
+    if (nextHandoffAgentId) {
+      await this.#getAgentRow(nextHandoffAgentId);
+    }
+
     const nextTargetSource =
       patch.executionTargetOverride !== undefined
         ? patch.executionTargetOverride
@@ -2076,6 +2099,7 @@ export class NovaService {
         status: patch.status ?? current.status,
         priority: patch.priority ?? current.priority,
         assignedAgentId: nextAgentId,
+        handoffAgentId: nextHandoffAgentId,
         executionTargetOverride:
           patch.executionTargetOverride !== undefined
             ? patch.executionTargetOverride
@@ -2169,13 +2193,15 @@ export class NovaService {
 
   async getTask(taskId: string) {
     const row = await this.#getTaskRow(taskId);
-    const [project, assignedAgent, attachments, comments, runs] = await Promise.all([
-      this.getProject(row.projectId),
-      this.getAgent(row.assignedAgentId),
-      this.getTaskAttachments(taskId),
-      this.getTaskComments(taskId),
-      this.getTaskRuns(taskId),
-    ]);
+    const [project, assignedAgent, handoffAgent, attachments, comments, runs] =
+      await Promise.all([
+        this.getProject(row.projectId),
+        this.getAgent(row.assignedAgentId),
+        row.handoffAgentId ? this.getAgent(row.handoffAgentId) : Promise.resolve(null),
+        this.getTaskAttachments(taskId),
+        this.getTaskComments(taskId),
+        this.getTaskRuns(taskId),
+      ]);
 
     const currentRun =
       runs.find((run) => ACTIVE_RUN_STATUSES.includes(run.status)) ?? null;
@@ -2184,6 +2210,7 @@ export class NovaService {
       ...this.#serializeTask(row),
       project,
       assignedAgent,
+      handoffAgent,
       attachments,
       comments,
       currentRun,
@@ -2245,7 +2272,12 @@ export class NovaService {
     const hydratedComment = await this.#getTaskCommentById(comment.id);
 
     if (authorType === "user") {
-      void this.#handleUserCommentIntent(task, hydratedComment, activeRun, input.thinkingLevel ?? null);
+      void this.#handleCommentMentionIntent(
+        task,
+        hydratedComment,
+        activeRun,
+        input.thinkingLevel ?? null
+      );
     }
 
     this.#websocketHub.broadcast("task.updated", await this.getTask(taskId));
@@ -2747,35 +2779,65 @@ export class NovaService {
       .orderBy(desc(taskComments.createdAt))
       .all();
 
-    const latestAgentCommentAt =
-      comments.find((comment) => comment.authorType === "agent")?.createdAt ?? null;
+    const latestCurrentAgentCommentAt =
+      options?.currentAgentId
+        ? comments.find(
+            (comment) =>
+              comment.authorType === "agent" &&
+              comment.authorId === options.currentAgentId
+          )?.createdAt ?? null
+        : comments.find((comment) => comment.authorType === "agent")?.createdAt ?? null;
     const relevantOperatorComments = comments.filter((comment) => {
       if (comment.authorType !== "user") {
         return false;
       }
 
-      if (!latestAgentCommentAt) {
+      if (!latestCurrentAgentCommentAt) {
         return true;
       }
 
-      return comment.createdAt > latestAgentCommentAt;
+      return comment.createdAt > latestCurrentAgentCommentAt;
     });
     const recentOperatorComments = relevantOperatorComments.slice(0, 5).reverse();
-    const recentAgentHandoffComments =
-      options?.reusingRuntimeSession === false
-        ? comments
-            .filter(
-              (comment) =>
-                comment.authorType === "agent" &&
-                comment.authorId &&
-                comment.authorId !== options.currentAgentId
-            )
-            .slice(0, 3)
-            .reverse()
-        : [];
+    const recentSystemHandoffComments = comments
+      .filter((comment) => {
+        if (
+          comment.authorType !== "system" ||
+          comment.externalMessageId !== AUTO_HANDOFF_EXTERNAL_MESSAGE_ID
+        ) {
+          return false;
+        }
+
+        if (!latestCurrentAgentCommentAt) {
+          return true;
+        }
+
+        return comment.createdAt > latestCurrentAgentCommentAt;
+      })
+      .slice(0, 2)
+      .reverse();
+    const recentAgentHandoffComments = comments
+      .filter((comment) => {
+        if (
+          comment.authorType !== "agent" ||
+          !comment.authorId ||
+          comment.authorId === options?.currentAgentId
+        ) {
+          return false;
+        }
+
+        if (!latestCurrentAgentCommentAt) {
+          return true;
+        }
+
+        return comment.createdAt > latestCurrentAgentCommentAt;
+      })
+      .slice(0, 3)
+      .reverse();
 
     if (
       recentOperatorComments.length === 0 &&
+      recentSystemHandoffComments.length === 0 &&
       recentAgentHandoffComments.length === 0
     ) {
       return null;
@@ -2839,6 +2901,16 @@ export class NovaService {
           return lines;
         }),
         "Treat the newest operator comment as the current revision request."
+      );
+    }
+
+    if (recentSystemHandoffComments.length > 0) {
+      sections.push(
+        "Auto-generated handoff instructions:",
+        ...recentSystemHandoffComments.map(
+          (comment, index) => `${index + 1}. [${comment.createdAt}] ${comment.body}`
+        ),
+        "Treat the newest handoff instruction as the current review or follow-up assignment."
       );
     }
 
@@ -3916,6 +3988,20 @@ export class NovaService {
             : "Run completed and moved to review.",
         failureReason: null,
       });
+
+      if (!awaitingOperatorInput) {
+        postTerminalAction = async () => {
+          await this.#triggerTaskAutoHandoffAfterCompletion({
+            taskId,
+            taskRunId: runId,
+            completedAgentId: agentId,
+            finalSummary:
+              typeof event.data.finalSummary === "string"
+                ? event.data.finalSummary
+                : null,
+          });
+        };
+      }
     }
 
     if (event.type === "run.failed") {
@@ -4015,12 +4101,18 @@ export class NovaService {
       if (active.unsubscribe) {
         await active.unsubscribe();
       }
-
-      this.#activeRuns.delete(runId);
     }
 
     if (postTerminalAction) {
       await postTerminalAction();
+    }
+
+    if (
+      event.type === "run.completed" ||
+      event.type === "run.failed" ||
+      event.type === "run.aborted"
+    ) {
+      this.#activeRuns.delete(runId);
     }
   }
 
@@ -4065,6 +4157,97 @@ export class NovaService {
       })
       .where(eq(agents.id, input.agentId))
       .run();
+  }
+
+  async #triggerTaskAutoHandoffAfterCompletion(input: {
+    taskId: string;
+    taskRunId: string;
+    completedAgentId: string;
+    finalSummary: string | null;
+  }) {
+    const task = await this.#getTaskRow(input.taskId);
+    const handoffAgentId = task.handoffAgentId?.trim() || null;
+
+    if (!handoffAgentId || handoffAgentId === input.completedAgentId) {
+      return;
+    }
+
+    if (task.status === "done" || task.status === "canceled") {
+      return;
+    }
+
+    const existingAutoHandoff = await this.#db
+      .select({ id: taskComments.id })
+      .from(taskComments)
+      .where(
+        and(
+          eq(taskComments.taskId, input.taskId),
+          eq(taskComments.authorType, "system"),
+          eq(taskComments.source, "system"),
+          eq(taskComments.externalMessageId, AUTO_HANDOFF_EXTERNAL_MESSAGE_ID)
+        )
+      )
+      .get();
+
+    if (existingAutoHandoff) {
+      return;
+    }
+
+    const [handoffAgent, completedAgent] = await Promise.all([
+      this.#getAgentRow(handoffAgentId),
+      this.#getAgentRow(input.completedAgentId),
+    ]);
+
+    const comment = await this.#createTaskCommentRecord({
+      taskId: input.taskId,
+      taskRunId: input.taskRunId,
+      authorType: "system",
+      authorId: null,
+      source: "system",
+      externalMessageId: AUTO_HANDOFF_EXTERNAL_MESSAGE_ID,
+      body: this.#buildAutoHandoffCommentBody({
+        task,
+        handoffAgent,
+        completedAgent,
+        finalSummary: input.finalSummary,
+      }),
+    });
+
+    const hydratedComment = await this.#getTaskCommentById(comment.id);
+    const latestTask = await this.#getTaskRow(input.taskId);
+    await this.#handleCommentMentionIntent(latestTask, hydratedComment, null, null);
+  }
+
+  #buildAutoHandoffCommentBody(input: {
+    task: typeof tasks.$inferSelect;
+    handoffAgent: typeof agents.$inferSelect;
+    completedAgent: typeof agents.$inferSelect;
+    finalSummary: string | null;
+  }) {
+    const lines = [
+      `@${input.handoffAgent.slug} Review the completed work for ${input.task.title}.`,
+      "",
+      `Completed by ${input.completedAgent.name}.`,
+    ];
+
+    if (input.task.gitBranchName) {
+      lines.push(`Branch: \`${input.task.gitBranchName}\``);
+
+      if (input.task.gitBranchUrl) {
+        lines.push(`Branch link: ${input.task.gitBranchUrl}`);
+      }
+    }
+
+    lines.push(
+      "",
+      "Focus on correctness, edge cases, regressions, and pull-request readiness."
+    );
+
+    if (input.finalSummary?.trim()) {
+      lines.push("", "Completion summary:", input.finalSummary.trim());
+    }
+
+    return lines.join("\n");
   }
 
   async #shouldAutoContinueAfterClaudeMaxTurns(input: {
@@ -4630,7 +4813,7 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
     return runtimeSessionKey;
   }
 
-  async #handleUserCommentIntent(
+  async #handleCommentMentionIntent(
     task: typeof tasks.$inferSelect,
     comment: TaskCommentRecord,
     activeRun: typeof taskRuns.$inferSelect | null,
@@ -5428,6 +5611,7 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
       status: row.status,
       priority: row.priority,
       assignedAgentId: row.assignedAgentId,
+      handoffAgentId: row.handoffAgentId,
       executionTargetOverride: row.executionTargetOverride,
       resolvedExecutionTarget: row.resolvedExecutionTarget,
       gitRepoRoot: row.gitRepoRoot,

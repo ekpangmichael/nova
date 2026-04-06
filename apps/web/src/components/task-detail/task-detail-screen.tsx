@@ -198,6 +198,12 @@ function buildTaskDetailView(
       name: task.assignedAgent?.name ?? "Unassigned",
       role: task.assignedAgent?.role ?? "No role",
     },
+    handoffAgent: task.handoffAgent
+      ? {
+          name: task.handoffAgent.name,
+          role: task.handoffAgent.role,
+        }
+      : null,
     workspace: task.resolvedExecutionTarget,
     branch: task.gitBranchName
       ? {

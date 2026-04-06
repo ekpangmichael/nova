@@ -78,6 +78,13 @@
       "when": 1775832000000,
       "tag": "0010_task_comment_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1775923200000,
+      "tag": "0011_task_handoff_agent",
+      "breakpoints": true
     }
   ]
 }

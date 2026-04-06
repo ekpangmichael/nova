@@ -93,11 +93,10 @@ export class OpenClawNativeAdapter implements RuntimeAdapter {
   }
 
   async getCatalog(): Promise<RuntimeCatalog> {
-    const [summary, agents, models, gatewayStatus] = await Promise.all([
+    const [summary, agents, models] = await Promise.all([
       this.getSummary(),
       this.listRuntimeAgents(),
       this.#processManager.listModels(),
-      this.#processManager.getGatewayStatus(),
     ]);
     const defaultAgent = agents.find((agent) => agent.isDefault) ?? null;
     const defaultModel =
@@ -115,11 +114,11 @@ export class OpenClawNativeAdapter implements RuntimeAdapter {
       configPath: summary.health.configPath ?? this.#env.openclawConfigPath,
       stateDir: summary.health.stateDir ?? this.#env.openclawStateDir,
       gateway: {
-        reachable: Boolean(gatewayStatus?.rpc?.ok) || summary.health.status === "healthy",
+        reachable: summary.health.status === "healthy",
         url: summary.health.gatewayUrl,
-        bindMode: gatewayStatus?.gateway?.bindMode ?? null,
-        bindHost: gatewayStatus?.gateway?.bindHost ?? null,
-        port: gatewayStatus?.gateway?.port ?? this.#inferPort(summary.health.gatewayUrl),
+        bindMode: null,
+        bindHost: null,
+        port: this.#inferPort(summary.health.gatewayUrl),
         authMode: "server-only",
       },
       defaults: {

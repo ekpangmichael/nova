@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { agents, taskRuns, tasks } from "@nova/db";
+import { agents, taskComments, taskRuns, tasks } from "@nova/db";
 import type { AppContext } from "./app.js";
 import { createApp } from "./app.js";
 import { normalizeAbsolutePath } from "./lib/paths.js";
@@ -2630,6 +2630,146 @@ describe("server integration", () => {
       await requestJson(currentContext, "GET", `/api/projects/${project.id}`)
     ).body;
     expect(reroutedProject.assignedAgentIds).toContain(secondaryAgent.id);
+  });
+
+  it("automatically hands a completed task to the configured follow-up agent", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Auto Handoff Project",
+      projectRoot: "projects/auto-handoff",
+    });
+    const { body: designAgent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Design Agent",
+      role: "Implementation",
+    });
+    const { body: reviewAgent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Review Agent",
+      role: "Review",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${designAgent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Auto handoff ticket",
+      assignedAgentId: designAgent.id,
+      handoffAgentId: reviewAgent.id,
+    });
+
+    const startResponse = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+    expect(startResponse.response.statusCode).toBe(200);
+
+    const handedOffTask = await waitFor(
+      async () =>
+        (
+          await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)
+        ).body,
+      (value) =>
+        value.assignedAgentId === reviewAgent.id &&
+        value.recentRuns.length >= 2 &&
+        value.recentRuns.every(
+          (run: { status: string }) =>
+            run.status === "completed" || run.status === "aborted"
+        )
+    );
+
+    expect(handedOffTask.assignedAgentId).toBe(reviewAgent.id);
+    expect(
+      handedOffTask.comments.some(
+        (comment: { authorType: string; body: string }) =>
+          comment.authorType === "system" &&
+          comment.body.includes("@review-agent Review the completed work for Auto handoff ticket.")
+      )
+    ).toBe(true);
+    expect(handedOffTask.recentRuns[0].agentId).toBe(reviewAgent.id);
+    expect(handedOffTask.recentRuns[1].agentId).toBe(designAgent.id);
+
+    await wait(150);
+
+    const stabilizedTask = (
+      await requestJson(currentContext, "GET", `/api/tasks/${task.id}`)
+    ).body;
+    expect(stabilizedTask.recentRuns).toHaveLength(2);
+
+    const updatedProject = (
+      await requestJson(currentContext, "GET", `/api/projects/${project.id}`)
+    ).body;
+    expect(updatedProject.assignedAgentIds).toContain(reviewAgent.id);
+
+    await currentContext.services.db.insert(taskComments).values({
+      id: randomUUID(),
+      taskId: task.id,
+      taskRunId: handedOffTask.recentRuns[0].id,
+      authorType: "agent",
+      authorId: reviewAgent.id,
+      source: "agent_mirror",
+      externalMessageId: "review-note",
+      body: "**Findings**\n- The review agent found a regression worth checking.",
+      createdAt: new Date().toISOString(),
+    });
+
+    const followUpResponse = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/comments`,
+      {
+        body: `@${designAgent.slug} Share the artifact path for the implementation.`,
+      }
+    );
+    expect(followUpResponse.response.statusCode).toBe(200);
+
+    const followUpTask = await waitFor(
+      async () =>
+        (
+          await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)
+        ).body,
+      (value) =>
+        value.assignedAgentId === designAgent.id &&
+        value.recentRuns.length >= 3 &&
+        value.recentRuns[0]?.agentId === designAgent.id &&
+        value.recentRuns[0]?.status === "completed"
+    );
+
+    const autoHandoffComments = followUpTask.comments.filter(
+      (comment: {
+        authorType: string;
+        externalMessageId?: string | null;
+      }) =>
+        comment.authorType === "system" &&
+        comment.externalMessageId === "auto_handoff"
+    );
+    expect(autoHandoffComments).toHaveLength(1);
+
+    await wait(150);
+
+    const stabilizedAfterFollowUp = (
+      await requestJson(currentContext, "GET", `/api/tasks/${task.id}`)
+    ).body;
+    expect(stabilizedAfterFollowUp.recentRuns).toHaveLength(3);
+    expect(stabilizedAfterFollowUp.recentRuns[0].agentId).toBe(designAgent.id);
+
+    const resumedDesignRun = stabilizedAfterFollowUp.recentRuns[0];
+    const resumedDesignTaskFile = await readFile(
+      join(designAgent.agentHomePath, ".apm", "runs", resumedDesignRun.id, "TASK.md"),
+      "utf8"
+    );
+    expect(resumedDesignTaskFile).toContain("Recent operator follow-up comments:");
+    expect(resumedDesignTaskFile).toContain(
+      `@${designAgent.slug} Share the artifact path for the implementation.`
+    );
+    expect(resumedDesignTaskFile).toContain("Recent agent handoff context:");
+    expect(resumedDesignTaskFile).toContain("Findings");
   });
 
   it("forwards comment-specific thinking level into an active runtime session", async () => {

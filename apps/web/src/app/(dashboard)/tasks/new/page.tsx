@@ -56,6 +56,7 @@ function NewTaskPageContent() {
   const [agents, setAgents] = useState<ApiAgent[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [assignedAgentId, setAssignedAgentId] = useState("");
+  const [handoffAgentId, setHandoffAgentId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<(typeof priorities)[number]["value"]>("medium");
@@ -189,6 +190,7 @@ function NewTaskPageContent() {
         description: combineDescription(description, technicalInstructions),
         priority,
         assignedAgentId,
+        handoffAgentId: handoffAgentId || null,
         executionTargetOverride: executionTargetOverride.trim() || null,
         dueAt: dueAt || null,
         labels: labels
@@ -223,20 +225,12 @@ function NewTaskPageContent() {
         Task Board
       </Link>
 
-      <div className="mb-4 flex items-center gap-2 text-outline">
-        <span className="text-xs font-mono uppercase tracking-widest">
-          System.Task.Init
-        </span>
-        <span className="h-px w-8 bg-outline-variant/30" />
-      </div>
-
-      <header className="mb-16">
-        <h1 className="text-4xl font-light leading-tight tracking-tight text-on-surface">
-          Create New Task
+      <header className="mb-10">
+        <h1 className="text-2xl font-semibold tracking-tight text-on-surface">
+          New Task
         </h1>
-        <p className="mt-4 max-w-xl font-light leading-relaxed text-on-surface-variant">
-          Define the objective, attach supporting context, and route the work to an
-          agent already assigned to the selected project.
+        <p className="mt-2 text-sm text-on-surface-variant">
+          Create a task, assign it to an agent, and optionally attach files for context.
         </p>
       </header>
 
@@ -246,18 +240,15 @@ function NewTaskPageContent() {
         </div>
       ) : null}
 
-      <form className="space-y-24" onSubmit={handleSubmit}>
-        <section className="space-y-8">
-          <div className="flex items-baseline gap-4 ghost-b pb-2">
-            <span className="font-mono text-xs text-secondary">01</span>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
-              Task Definition
-            </h2>
-          </div>
-          <div className="space-y-12">
-            <div className="grid gap-8 md:grid-cols-2">
+      <form className="space-y-12" onSubmit={handleSubmit}>
+        <section className="space-y-6">
+          <h2 className="text-sm font-semibold text-on-surface-variant">
+            Task Details
+          </h2>
+          <div className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+                <label className="mb-2 block text-xs text-on-surface-variant">
                   Project
                 </label>
                 <div className="relative">
@@ -275,6 +266,7 @@ function NewTaskPageContent() {
                       setAssignedAgentId(
                         nextAssignedAgents[0]?.id ?? agents[0]?.id ?? ""
                       );
+                      setHandoffAgentId("");
                     }}
                     disabled={isLoading}
                     className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
@@ -294,52 +286,54 @@ function NewTaskPageContent() {
               </div>
 
               <div>
-                <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
-                  Objective Title
+                <label className="mb-2 block text-xs text-on-surface-variant">
+                  Title
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
-                  className="w-full border-none border-b pb-4 text-2xl font-light text-on-surface placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
-                  style={{ borderBottom: "1px solid rgba(72,72,75,0.2)" }}
-                  placeholder="Quantum Ledger Synchronization"
+                  className="w-full bg-surface-container-low rounded-sm ghost px-4 py-3 text-sm text-on-surface placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
+                  placeholder="e.g. Fix login redirect on mobile"
                 />
               </div>
             </div>
 
             <div>
-              <label className="mb-4 block text-[10px] uppercase tracking-widest text-outline">
-                Description &amp; Intent
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Description
               </label>
-              <div className="min-h-[200px] bg-surface-container-low p-6 ghost">
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  className="min-h-[120px] w-full resize-y border-none bg-transparent leading-relaxed text-on-surface-variant placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
-                  placeholder="Describe the desired outcome and critical success factors..."
-                />
-              </div>
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                className="min-h-[120px] w-full resize-y bg-surface-container-low rounded-sm ghost px-4 py-3 text-sm leading-relaxed text-on-surface-variant placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
+                placeholder="What should the agent do? Include any relevant details or constraints."
+              />
             </div>
           </div>
         </section>
 
-        <section className="space-y-8">
-          <div className="flex items-baseline gap-4 ghost-b pb-2">
-            <span className="font-mono text-xs text-secondary">02</span>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
-              Execution Parameters
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
+        <section className="space-y-6">
+          <h2 className="text-sm font-semibold text-on-surface-variant">
+            Assignment &amp; Priority
+          </h2>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Row 1: Agent | Handoff */}
             <div>
-              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
-                Assign Agent
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Agent
               </label>
               <div className="relative">
                 <select
                   value={assignedAgentId}
-                  onChange={(event) => setAssignedAgentId(event.target.value)}
+                  onChange={(event) => {
+                    const nextAssignedAgentId = event.target.value;
+                    setAssignedAgentId(nextAssignedAgentId);
+
+                    if (handoffAgentId === nextAssignedAgentId) {
+                      setHandoffAgentId("");
+                    }
+                  }}
                   disabled={isLoading || agents.length === 0}
                   className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
                 >
@@ -373,13 +367,64 @@ function NewTaskPageContent() {
               </div>
               <p className="mt-2 text-xs text-on-surface-variant">
                 {selectedAgent && !selectedAgent.projectIds.includes(selectedProjectId)
-                  ? "This agent is not assigned yet. Nova will assign them to the project before creating the task."
-                  : "Pick an assigned agent or choose another agent and Nova will assign them automatically."}
+                  ? "This agent will be assigned to the project automatically."
+                  : "Pick an agent or choose one to assign automatically."}
               </p>
             </div>
 
             <div>
-              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Handoff to
+              </label>
+              <div className="relative">
+                <select
+                  value={handoffAgentId}
+                  onChange={(event) => setHandoffAgentId(event.target.value)}
+                  disabled={isLoading || agents.length === 0}
+                  className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
+                >
+                  <option value="">None</option>
+                  {assignedAgents
+                    .filter((agent) => agent.id !== assignedAgentId)
+                    .length > 0 ? (
+                    <optgroup label="Assigned to this project">
+                      {assignedAgents
+                        .filter((agent) => agent.id !== assignedAgentId)
+                        .map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} ({agent.role})
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                  {unassignedAgents
+                    .filter((agent) => agent.id !== assignedAgentId)
+                    .length > 0 ? (
+                    <optgroup label="Available to assign">
+                      {unassignedAgents
+                        .filter((agent) => agent.id !== assignedAgentId)
+                        .map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} ({agent.role}) - will be assigned
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+                <Icon
+                  name="expand_more"
+                  size={18}
+                  className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-outline"
+                />
+              </div>
+              <p className="mt-2 text-xs text-on-surface-variant">
+                Optionally pass the task to another agent after completion.
+              </p>
+            </div>
+
+            {/* Row 2: Priority | Due date */}
+            <div>
+              <label className="mb-2 block text-xs text-on-surface-variant">
                 Priority
               </label>
               <div className="flex gap-2">
@@ -388,7 +433,7 @@ function NewTaskPageContent() {
                     key={entry.value}
                     type="button"
                     onClick={() => setPriority(entry.value)}
-                    className={`flex-1 py-2.5 text-[10px] font-medium uppercase tracking-widest transition-all ${
+                    className={`flex-1 rounded-sm py-2.5 text-[11px] font-medium uppercase tracking-wider transition-all ${
                       priority === entry.value
                         ? entry.value === "critical"
                           ? "bg-error/15 text-error"
@@ -401,12 +446,24 @@ function NewTaskPageContent() {
                 ))}
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 gap-12 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
-                Execution Target Override
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Due date
+              </label>
+              <input
+                type="date"
+                value={dueAt}
+                onChange={(event) => setDueAt(event.target.value)}
+                onClick={(event) => (event.target as HTMLInputElement).showPicker()}
+                className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 cursor-pointer"
+              />
+            </div>
+
+            {/* Row 3: Working Directory | Labels */}
+            <div>
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Working Directory
               </label>
               <div className="space-y-2">
                 <button
@@ -433,16 +490,16 @@ function NewTaskPageContent() {
                 <div className="flex items-center justify-between gap-3 text-xs text-on-surface-variant">
                   <p>
                     {executionTargetOverride
-                      ? "Using a task-specific execution directory."
+                      ? "Using a custom directory for this task."
                       : "Using the project root by default."}
                   </p>
                   {executionTargetOverride ? (
                     <button
                       type="button"
                       onClick={() => setExecutionTargetOverride("")}
-                      className="font-mono text-[10px] uppercase tracking-[0.18em] text-secondary transition-colors hover:text-on-surface"
+                      className="text-xs text-secondary transition-colors hover:text-on-surface"
                     >
-                      Use project root
+                      Reset to project root
                     </button>
                   ) : null}
                 </div>
@@ -450,60 +507,44 @@ function NewTaskPageContent() {
             </div>
 
             <div>
-              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
-                Deadline
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Labels
               </label>
               <input
-                type="date"
-                value={dueAt}
-                onChange={(event) => setDueAt(event.target.value)}
-                onClick={(event) => (event.target as HTMLInputElement).showPicker()}
-                className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 cursor-pointer"
+                type="text"
+                value={labels}
+                onChange={(event) => setLabels(event.target.value)}
+                className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost placeholder:text-on-surface-variant/25 focus:outline-none focus:ring-0"
+                placeholder="backend, monitor, launch"
               />
             </div>
           </div>
-
-          <div>
-            <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
-              Labels
-            </label>
-            <input
-              type="text"
-              value={labels}
-              onChange={(event) => setLabels(event.target.value)}
-              className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost placeholder:text-on-surface-variant/25 focus:outline-none focus:ring-0"
-              placeholder="backend, monitor, launch"
-            />
-          </div>
         </section>
 
-        <section className="space-y-8">
-          <div className="flex items-baseline gap-4 ghost-b pb-2">
-            <span className="font-mono text-xs text-secondary">03</span>
-            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-on-surface-variant">
-              Context &amp; Attachments
-            </h2>
-          </div>
-          <div className="space-y-8">
+        <section className="space-y-6">
+          <h2 className="text-sm font-semibold text-on-surface-variant">
+            Attachments
+          </h2>
+          <div className="space-y-6">
             <div>
-              <label className="mb-4 block text-[10px] uppercase tracking-widest text-outline">
-                Reference Materials
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Files
               </label>
-              <label className="block cursor-pointer border-2 border-dashed border-outline-variant/10 bg-surface-container-low/30 p-12 text-center transition-colors hover:border-secondary/40">
-                <div className="mb-4">
+              <label className="block cursor-pointer rounded-sm border-2 border-dashed border-outline-variant/15 bg-surface-container-low/30 px-6 py-8 text-center transition-colors hover:border-secondary/40">
+                <div className="mb-3">
                   <Icon
                     name="upload_file"
-                    size={36}
+                    size={28}
                     className="text-outline-variant"
                   />
                 </div>
                 <p className="text-sm text-on-surface-variant">
-                  Drop contextual assets here or{" "}
+                  Drop files here or{" "}
                   <span className="text-secondary underline underline-offset-4">
-                    browse system files
+                    browse
                   </span>
                 </p>
-                <p className="mt-2 text-[10px] uppercase tracking-tighter text-outline">
+                <p className="mt-1.5 text-[11px] text-on-surface-variant/40">
                   {formatAllowedAttachmentSummary()}
                 </p>
                 <input
@@ -575,41 +616,34 @@ function NewTaskPageContent() {
             </div>
 
             <div>
-              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
-                Technical Instructions
+              <label className="mb-2 block text-xs text-on-surface-variant">
+                Technical notes
               </label>
               <textarea
                 value={technicalInstructions}
                 onChange={(event) => setTechnicalInstructions(event.target.value)}
-                className="min-h-[120px] w-full resize-y bg-surface-container-low px-6 py-4 leading-relaxed text-on-surface-variant ghost placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
-                placeholder="Specific constraints, edge cases, or implementation notes..."
+                className="min-h-[100px] w-full resize-y bg-surface-container-low rounded-sm ghost px-4 py-3 text-sm leading-relaxed text-on-surface-variant placeholder:text-on-surface-variant/20 focus:outline-none focus:ring-0"
+                placeholder="Any constraints, edge cases, or implementation details the agent should know about."
               />
             </div>
           </div>
         </section>
 
-        <footer className="flex flex-col items-center justify-between gap-6 pt-12 ghost-t md:flex-row">
+        <footer className="flex items-center justify-end gap-4 border-t border-outline-variant/10 pt-6">
           <button
             type="button"
             onClick={() => router.back()}
-            className="group flex items-center gap-2 text-on-surface-variant transition-colors hover:text-on-surface"
+            className="rounded-sm px-4 py-2.5 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
           >
-            <Icon
-              name="west"
-              size={20}
-              className="transition-transform group-hover:-translate-x-1"
-            />
-            <span className="text-sm font-medium">Discard Draft</span>
+            Cancel
           </button>
-          <div className="flex w-full items-center gap-4 md:w-auto">
-            <button
-              type="submit"
-              disabled={isSubmitting || isLoading || agents.length === 0}
-              className="flex-1 rounded-sm bg-primary px-12 py-3 text-sm font-bold text-on-primary transition-all active:scale-[0.98] disabled:opacity-50 md:flex-none"
-            >
-              {isSubmitting ? "Creating…" : "Create Task"}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={isSubmitting || isLoading || agents.length === 0}
+            className="rounded-sm bg-primary px-8 py-2.5 text-sm font-semibold text-on-primary transition-all active:scale-[0.98] hover:opacity-80 disabled:opacity-50"
+          >
+            {isSubmitting ? "Creating…" : "Create Task"}
+          </button>
         </footer>
       </form>
     </div>
