@@ -503,6 +503,7 @@ export type ApiTaskSummary = {
   status: ApiTaskStatus;
   priority: ApiTaskPriority;
   assignedAgentId: string;
+  handoffAgentId: string | null;
   executionTargetOverride: string | null;
   resolvedExecutionTarget: string;
   gitRepoRoot: string | null;
@@ -515,6 +516,7 @@ export type ApiTaskSummary = {
   createdAt: string;
   updatedAt: string;
   assignedAgent: ApiAgent | null;
+  handoffAgent: ApiAgent | null;
   commentCount: number;
   attachmentCount: number;
   currentRun: ApiTaskRun | null;
@@ -593,6 +595,7 @@ export type CreateTaskInput = {
   status?: ApiTaskStatus;
   priority?: ApiTaskPriority;
   assignedAgentId: string;
+  handoffAgentId?: string | null;
   executionTargetOverride?: string | null;
   dueAt?: string | null;
   estimatedMinutes?: number | null;

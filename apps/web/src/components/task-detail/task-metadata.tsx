@@ -33,6 +33,27 @@ export function TaskMetadata({ task }: { task: TaskDetail }) {
           </div>
         </div>
 
+        {task.handoffAgent ? (
+          <div className="px-5 py-4">
+            <p className="mb-2 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+              Auto handoff
+            </p>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/8">
+                <Icon name="share" size={16} className="text-primary/60" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-medium text-on-surface">
+                  {task.handoffAgent.name}
+                </p>
+                <p className="truncate text-[11px] text-on-surface-variant/35">
+                  {task.handoffAgent.role}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* Workspace */}
         <div className="px-5 py-4">
           <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">

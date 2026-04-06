@@ -197,6 +197,9 @@ export const tasks = sqliteTable(
     assignedAgentId: requiredText("assigned_agent_id").references(() => agents.id, {
       onDelete: "restrict",
     }),
+    handoffAgentId: text("handoff_agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
     executionTargetOverride: text("execution_target_override"),
     resolvedExecutionTarget: requiredText("resolved_execution_target"),
     gitRepoRoot: text("git_repo_root"),

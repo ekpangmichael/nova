@@ -304,6 +304,7 @@ export type TaskRecord = {
   status: TaskStatus;
   priority: TaskPriority;
   assignedAgentId: string;
+  handoffAgentId: string | null;
   executionTargetOverride: string | null;
   resolvedExecutionTarget: string;
   gitRepoRoot: string | null;

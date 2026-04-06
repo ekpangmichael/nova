@@ -58,6 +58,7 @@ export function EditTaskForm({
   const [status, setStatus] = useState(task.status);
   const [priority, setPriority] = useState(task.priority);
   const [assignedAgentId, setAssignedAgentId] = useState(task.assignedAgentId);
+  const [handoffAgentId, setHandoffAgentId] = useState(task.handoffAgentId ?? "");
   const [executionTargetOverride, setExecutionTargetOverride] = useState(
     task.executionTargetOverride ?? ""
   );
@@ -157,6 +158,7 @@ export function EditTaskForm({
         status,
         priority,
         assignedAgentId,
+        handoffAgentId: handoffAgentId || null,
         executionTargetOverride: executionTargetOverride.trim() || null,
         dueAt: dueAt || null,
         labels: labels
@@ -281,7 +283,14 @@ export function EditTaskForm({
               <div className="relative">
                 <select
                   value={assignedAgentId}
-                  onChange={(event) => setAssignedAgentId(event.target.value)}
+                  onChange={(event) => {
+                    const nextAssignedAgentId = event.target.value;
+                    setAssignedAgentId(nextAssignedAgentId);
+
+                    if (handoffAgentId === nextAssignedAgentId) {
+                      setHandoffAgentId("");
+                    }
+                  }}
                   disabled={isLoadingOptions || agents.length === 0}
                   className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
                 >
@@ -310,6 +319,53 @@ export function EditTaskForm({
                           {agent.name} ({agent.role}) - will be assigned
                         </option>
                       ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+                <Icon
+                  name="expand_more"
+                  size={18}
+                  className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-outline"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+                Auto handoff on completion
+              </label>
+              <div className="relative">
+                <select
+                  value={handoffAgentId}
+                  onChange={(event) => setHandoffAgentId(event.target.value)}
+                  disabled={isLoadingOptions || agents.length === 0}
+                  className="w-full appearance-none bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost focus:outline-none focus:ring-0 disabled:opacity-50"
+                >
+                  <option value="">None</option>
+                  {assignedAgents
+                    .filter((agent) => agent.id !== assignedAgentId)
+                    .length > 0 ? (
+                    <optgroup label="Assigned to this project">
+                      {assignedAgents
+                        .filter((agent) => agent.id !== assignedAgentId)
+                        .map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} ({agent.role})
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                  {unassignedAgents
+                    .filter((agent) => agent.id !== assignedAgentId)
+                    .length > 0 ? (
+                    <optgroup label="Available to assign">
+                      {unassignedAgents
+                        .filter((agent) => agent.id !== assignedAgentId)
+                        .map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name} ({agent.role}) - will be assigned
+                          </option>
+                        ))}
                     </optgroup>
                   ) : null}
                 </select>

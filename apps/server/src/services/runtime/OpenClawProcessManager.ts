@@ -78,6 +78,10 @@ type OpenClawConfigEntry = {
 
 type OpenClawConfigFile = {
   list?: OpenClawConfigEntry[];
+  agents?: {
+    list?: OpenClawConfigEntry[];
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 };
 
@@ -88,56 +92,118 @@ export type OpenClawCommandResult = {
 
 export class OpenClawProcessManager {
   static #HEALTH_CACHE_TTL_MS = 10_000;
+  static #BINARY_VERSION_CACHE_TTL_MS = 5 * 60_000;
+  static #GATEWAY_STATUS_CACHE_TTL_MS = 10_000;
+  static #AGENT_LIST_CACHE_TTL_MS = 60_000;
+  static #MODEL_LIST_CACHE_TTL_MS = 5 * 60_000;
   #env: AppEnv;
   #lastHealth: RuntimeHealth | null = null;
   #lastHealthAt = 0;
+  #lastBinaryVersion: string | null = null;
+  #lastBinaryVersionAt = 0;
+  #lastGatewayStatus: OpenClawGatewayStatus | null = null;
+  #lastGatewayStatusAt = 0;
+  #lastAgentList: OpenClawAgentListItem[] | null = null;
+  #lastAgentListAt = 0;
+  #lastModelList: NonNullable<OpenClawModelsList["models"]> | null = null;
+  #lastModelListAt = 0;
 
   constructor(env: AppEnv) {
     this.#env = env;
   }
 
   async getBinaryVersion(): Promise<string | null> {
+    if (
+      this.#lastBinaryVersionAt > 0 &&
+      Date.now() - this.#lastBinaryVersionAt <
+        OpenClawProcessManager.#BINARY_VERSION_CACHE_TTL_MS
+    ) {
+      return this.#lastBinaryVersion;
+    }
+
     try {
       const result = await this.run(["--version"]);
-      return result.stdout.trim() || null;
+      this.#lastBinaryVersion = result.stdout.trim() || null;
+      this.#lastBinaryVersionAt = Date.now();
+      return this.#lastBinaryVersion;
     } catch {
+      this.#lastBinaryVersion = null;
+      this.#lastBinaryVersionAt = Date.now();
       return null;
     }
   }
 
   async getGatewayStatus(): Promise<OpenClawGatewayStatus | null> {
+    if (
+      this.#lastGatewayStatusAt > 0 &&
+      Date.now() - this.#lastGatewayStatusAt <
+        OpenClawProcessManager.#GATEWAY_STATUS_CACHE_TTL_MS
+    ) {
+      return this.#lastGatewayStatus;
+    }
+
     try {
-      return await this.runJson<OpenClawGatewayStatus>([
+      this.#lastGatewayStatus = await this.runJson<OpenClawGatewayStatus>([
         "gateway",
         "status",
         "--json",
       ]);
+      this.#lastGatewayStatusAt = Date.now();
+      return this.#lastGatewayStatus;
     } catch {
+      this.#lastGatewayStatus = null;
+      this.#lastGatewayStatusAt = Date.now();
       return null;
     }
   }
 
   async listAgents(): Promise<OpenClawAgentListItem[]> {
+    if (
+      this.#lastAgentListAt > 0 &&
+      this.#lastAgentList &&
+      Date.now() - this.#lastAgentListAt <
+        OpenClawProcessManager.#AGENT_LIST_CACHE_TTL_MS
+    ) {
+      return this.#lastAgentList;
+    }
+
     try {
-      return await this.runJson<OpenClawAgentListItem[]>([
+      this.#lastAgentList = await this.runJson<OpenClawAgentListItem[]>([
         "agents",
         "list",
         "--json",
       ]);
+      this.#lastAgentListAt = Date.now();
+      return this.#lastAgentList;
     } catch {
+      this.#lastAgentList = [];
+      this.#lastAgentListAt = Date.now();
       return [];
     }
   }
 
   async listModels(): Promise<NonNullable<OpenClawModelsList["models"]>> {
+    if (
+      this.#lastModelListAt > 0 &&
+      this.#lastModelList &&
+      Date.now() - this.#lastModelListAt <
+        OpenClawProcessManager.#MODEL_LIST_CACHE_TTL_MS
+    ) {
+      return this.#lastModelList;
+    }
+
     try {
       const payload = await this.runJson<OpenClawModelsList>([
         "models",
         "list",
         "--json",
       ]);
-      return payload.models ?? [];
+      this.#lastModelList = payload.models ?? [];
+      this.#lastModelListAt = Date.now();
+      return this.#lastModelList;
     } catch {
+      this.#lastModelList = [];
+      this.#lastModelListAt = Date.now();
       return [];
     }
   }
@@ -241,6 +307,7 @@ export class OpenClawProcessManager {
     args.push("--json");
 
     await this.run(args);
+    this.#invalidateAgentListCache();
   }
 
   async run(args: string[]): Promise<OpenClawCommandResult> {
@@ -287,7 +354,10 @@ export class OpenClawProcessManager {
       return health;
     }
 
-    const binaryVersion = await this.getBinaryVersion();
+    const [binaryVersion, gatewayStatus] = await Promise.all([
+      this.getBinaryVersion(),
+      this.getGatewayStatus(),
+    ]);
 
     if (!binaryVersion) {
       const health: RuntimeHealth = {
@@ -308,7 +378,6 @@ export class OpenClawProcessManager {
       return health;
     }
 
-    const gatewayStatus = await this.getGatewayStatus();
     const gatewayUrl =
       this.#env.openclawGatewayUrl ??
       gatewayStatus?.rpc?.url ??
@@ -349,8 +418,7 @@ export class OpenClawProcessManager {
   }
 
   async restart() {
-    this.#lastHealth = null;
-    this.#lastHealthAt = 0;
+    this.#resetCaches();
 
     if (this.#env.runtimeMode === "mock") {
       return this.getHealth();
@@ -367,7 +435,7 @@ export class OpenClawProcessManager {
 
   async ensureMainAgentCanInvoke(runtimeAgentId: string) {
     const changed = await this.#mutateConfig((config) => {
-      const list = Array.isArray(config.list) ? [...config.list] : [];
+      const list = this.#getAgentConfigList(config);
       const mainIndex = list.findIndex((entry) => entry?.id === "main");
 
       if (mainIndex < 0) {
@@ -396,10 +464,7 @@ export class OpenClawProcessManager {
       };
 
       return {
-        config: {
-          ...config,
-          list,
-        },
+        config: this.#setAgentConfigList(config, list),
         changed: true,
       };
     });
@@ -414,7 +479,7 @@ export class OpenClawProcessManager {
     let removedAgentDirPath: string | null = null;
 
     const changed = await this.#mutateConfig((config) => {
-      const list = Array.isArray(config.list) ? [...config.list] : [];
+      const list = this.#getAgentConfigList(config);
       let mutated = false;
 
       const filteredList = list
@@ -456,12 +521,7 @@ export class OpenClawProcessManager {
         });
 
       return {
-        config: mutated
-          ? {
-              ...config,
-              list: filteredList,
-            }
-          : config,
+        config: mutated ? this.#setAgentConfigList(config, filteredList) : config,
         changed: mutated,
       };
     });
@@ -568,6 +628,31 @@ export class OpenClawProcessManager {
     return entry && typeof entry === "object" ? { ...entry } : {};
   }
 
+  #getAgentConfigList(config: OpenClawConfigFile) {
+    if (config.agents && typeof config.agents === "object" && Array.isArray(config.agents.list)) {
+      return [...config.agents.list];
+    }
+
+    return Array.isArray(config.list) ? [...config.list] : [];
+  }
+
+  #setAgentConfigList(config: OpenClawConfigFile, list: OpenClawConfigEntry[]): OpenClawConfigFile {
+    if (config.agents && typeof config.agents === "object") {
+      return {
+        ...config,
+        agents: {
+          ...config.agents,
+          list,
+        },
+      };
+    }
+
+    return {
+      ...config,
+      list,
+    };
+  }
+
   #pathIsInsideOpenClawStateDir(candidatePath: string) {
     const stateDir = resolve(this.#env.openclawStateDir);
     const relativePath = relative(stateDir, candidatePath);
@@ -579,6 +664,8 @@ export class OpenClawProcessManager {
   }
 
   async #restartAfterConfigMutation() {
+    this.#resetCaches();
+
     if (this.#env.runtimeMode === "mock") {
       return;
     }
@@ -591,6 +678,8 @@ export class OpenClawProcessManager {
   }
 
   async #restartAfterAgentMutation() {
+    this.#resetCaches();
+
     if (this.#env.runtimeMode === "mock") {
       return;
     }
@@ -628,5 +717,23 @@ export class OpenClawProcessManager {
     }
 
     throw new Error("OpenClaw command did not return valid JSON.");
+  }
+
+  #invalidateAgentListCache() {
+    this.#lastAgentList = null;
+    this.#lastAgentListAt = 0;
+  }
+
+  #resetCaches() {
+    this.#lastHealth = null;
+    this.#lastHealthAt = 0;
+    this.#lastBinaryVersion = null;
+    this.#lastBinaryVersionAt = 0;
+    this.#lastGatewayStatus = null;
+    this.#lastGatewayStatusAt = 0;
+    this.#lastAgentList = null;
+    this.#lastAgentListAt = 0;
+    this.#lastModelList = null;
+    this.#lastModelListAt = 0;
   }
 }
