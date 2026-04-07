@@ -8,6 +8,7 @@ import {
   addTaskComment,
   ApiError,
   type ApiAgent,
+  type ApiRunEvent,
   type ApiThinkingLevel,
 } from "@/lib/api";
 import {
@@ -244,6 +245,269 @@ function CommentMarkdown({
   );
 }
 
+function formatStreamTimeAgo(createdAt: string) {
+  const seconds = Math.round((Date.now() - new Date(createdAt).getTime()) / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
+}
+
+function extractDeltaText(event: ApiRunEvent): string | null {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  // OpenClaw / mock use `delta`, Claude uses `message`
+  if (typeof payload.delta === "string") return payload.delta;
+  if (typeof payload.message === "string") return payload.message;
+  if (typeof payload.content === "string") return payload.content;
+  if (typeof payload.text === "string") return payload.text;
+  return null;
+}
+
+function getStreamEventText(event: ApiRunEvent) {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const t = event.eventType;
+
+  if (t === "run.accepted") return "Run accepted by runtime.";
+  if (t === "run.started") return "Run started in execution target.";
+  if (t === "run.completed") return "Run completed.";
+  if (t === "run.failed") {
+    const reason = typeof payload.reason === "string" ? payload.reason : "";
+    return reason ? `Run failed: ${reason}` : "Run failed.";
+  }
+  if (t === "run.aborted") return "Run aborted.";
+  if (t === "tool.started" && typeof payload.toolName === "string") {
+    return `Tool started: ${payload.toolName}`;
+  }
+  if (t === "tool.completed" && typeof payload.toolName === "string") {
+    return `Tool completed: ${payload.toolName}`;
+  }
+  if (t === "artifact.created" && typeof payload.path === "string") {
+    return `File created: ${payload.path}`;
+  }
+  if (t === "message.completed") {
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message.trim();
+    }
+    if (typeof payload.finalSummary === "string" && payload.finalSummary.trim()) {
+      return payload.finalSummary.trim();
+    }
+    return "Response complete.";
+  }
+  if (t === "warning" && typeof payload.message === "string") return payload.message;
+  if (t === "error" && typeof payload.message === "string") return payload.message;
+  return t.replace(/\./g, " ");
+}
+
+type StreamLogEntry =
+  | { kind: "event"; event: ApiRunEvent; text: string }
+  | { kind: "assistant"; text: string; timestamp: string };
+
+function buildStreamLog(events: ApiRunEvent[]): StreamLogEntry[] {
+  const entries: StreamLogEntry[] = [];
+  let accumulatedText = "";
+  let lastDeltaTimestamp = "";
+
+  for (const event of events) {
+    if (event.eventType === "usage") continue;
+
+    if (event.eventType === "message.delta") {
+      const delta = extractDeltaText(event);
+      if (delta) {
+        accumulatedText += delta;
+        lastDeltaTimestamp = event.createdAt;
+      }
+      continue;
+    }
+
+    // Flush accumulated text before a non-delta event
+    if (accumulatedText) {
+      entries.push({ kind: "assistant", text: accumulatedText, timestamp: lastDeltaTimestamp });
+      accumulatedText = "";
+    }
+
+    if (event.eventType === "message.completed") {
+      // message.completed carries the full assistant reply.
+      // Different runtimes use different payload fields:
+      //   Codex  → payload.message
+      //   Claude → payload.finalSummary
+      //   Mock   → payload.message / payload.delta
+      const payload = (event.payload ?? {}) as Record<string, unknown>;
+      const completedText =
+        (typeof payload.message === "string" && payload.message.trim()) ||
+        (typeof payload.finalSummary === "string" && payload.finalSummary.trim()) ||
+        (typeof payload.content === "string" && payload.content.trim()) ||
+        (typeof payload.text === "string" && payload.text.trim()) ||
+        (typeof payload.delta === "string" && payload.delta.trim()) ||
+        null;
+      if (completedText) {
+        entries.push({ kind: "assistant", text: completedText, timestamp: event.createdAt });
+      }
+      continue;
+    }
+
+    entries.push({ kind: "event", event, text: getStreamEventText(event) });
+  }
+
+  // Flush any trailing deltas
+  if (accumulatedText) {
+    entries.push({ kind: "assistant", text: accumulatedText, timestamp: lastDeltaTimestamp });
+  }
+
+  return entries;
+}
+
+const StreamLogContext = React.createContext<{
+  collapsed: boolean;
+  toggle: () => void;
+}>({ collapsed: false, toggle: () => {} });
+
+function AgentStreamingLogToggle() {
+  const { collapsed, toggle } = React.useContext(StreamLogContext);
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="flex items-center gap-1 text-[11px] text-on-surface-variant/30 hover:text-on-surface-variant/60 transition-colors"
+    >
+      <Icon name={collapsed ? "visibility" : "visibility_off"} size={12} />
+      {collapsed ? "Show logs" : "Hide"}
+    </button>
+  );
+}
+
+function AgentStreamingLog({ events }: { events: ApiRunEvent[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { collapsed } = React.useContext(StreamLogContext);
+  const [, setTick] = useState(0);
+  const prevLengthRef = useRef(0);
+
+  const entries = useMemo(() => buildStreamLog(events), [events]);
+
+  // Auto-scroll, but only when new entries arrive
+  useEffect(() => {
+    if (scrollRef.current && entries.length > prevLengthRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+    prevLengthRef.current = entries.length;
+  }, [entries.length, events.length]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick((n) => n + 1), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (entries.length === 0 || collapsed) {
+    return null;
+  }
+
+  return (
+    <div className="border-t border-tertiary/6">
+      <div
+        ref={scrollRef}
+        className="max-h-[320px] overflow-y-auto overflow-x-hidden scrollbar-thin"
+      >
+        <div className="relative px-4 py-3">
+          {/* Fade-in gradient at top when scrollable */}
+          <div className="pointer-events-none sticky top-0 -mt-3 mb-1 h-4 bg-gradient-to-b from-surface-container-low to-transparent" />
+          <div className="space-y-1.5">
+            {entries.map((entry, i) => {
+              const isLast = i === entries.length - 1;
+
+              if (entry.kind === "assistant") {
+                return (
+                  <div
+                    key={`assistant-${i}`}
+                    className={cn(
+                      "break-words whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] leading-[1.7] text-on-surface-variant/80 bg-tertiary/[0.04]",
+                      isLast && "ring-1 ring-tertiary/10"
+                    )}
+                  >
+                    {entry.text}
+                  </div>
+                );
+              }
+
+              const t = entry.event.eventType;
+              const isError = t === "error" || t === "run.failed";
+              const isCompleted = t === "run.completed";
+              const isTool = t === "tool.started" || t === "tool.completed";
+              const isToolStart = t === "tool.started";
+              const isArtifact = t === "artifact.created";
+              const isMuted = t === "run.started" || t === "tool.completed" || t === "run.accepted";
+
+              return (
+                <div
+                  key={entry.event.id}
+                  className={cn(
+                    "group flex items-start gap-2 break-words text-[12px] leading-relaxed transition-opacity",
+                    isTool && "py-0.5",
+                    isLast && "animate-in fade-in duration-200",
+                  )}
+                >
+                  {/* Contextual icon */}
+                  <span className={cn("mt-[3px] flex shrink-0 items-center justify-center", isTool ? "w-4" : "w-4")}>
+                    {isTool ? (
+                      <Icon
+                        name={isToolStart ? "chevron_right" : "check"}
+                        size={12}
+                        className={cn(
+                          isToolStart ? "text-tertiary/60" : "text-tertiary/30"
+                        )}
+                      />
+                    ) : isError ? (
+                      <Icon name="error" size={12} className="text-error/60" />
+                    ) : isCompleted ? (
+                      <Icon name="check_circle" size={12} className="text-tertiary/50" />
+                    ) : isArtifact ? (
+                      <Icon name="draft" size={12} className="text-secondary/40" />
+                    ) : (
+                      <span className={cn(
+                        "h-1 w-1 rounded-full",
+                        isLast ? "bg-tertiary/60" : "bg-on-surface-variant/20"
+                      )} />
+                    )}
+                  </span>
+
+                  <p
+                    className={cn(
+                      "min-w-0",
+                      isError
+                        ? "font-medium text-error/70"
+                        : isCompleted
+                          ? "font-medium text-tertiary/70"
+                          : isTool
+                            ? isToolStart
+                              ? "font-medium text-on-surface-variant/60"
+                              : "text-tertiary/35"
+                            : isArtifact
+                              ? "text-secondary/50"
+                              : isMuted
+                                ? "text-on-surface-variant/35"
+                                : "text-on-surface-variant/55"
+                    )}
+                  >
+                    {!isTool && (
+                      <span className="mr-1.5 font-mono text-[10px] text-on-surface-variant/20">
+                        {formatStreamTimeAgo(entry.event.createdAt)}
+                      </span>
+                    )}
+                    {entry.text}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          {/* Cursor blink indicator for active streaming */}
+          <div className="mt-2 flex items-center gap-1.5 text-[10px] text-tertiary/30">
+            <span className="h-3 w-px animate-pulse bg-tertiary/40" />
+            <span>streaming</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CommentThread({
   taskId,
   comments,
@@ -255,6 +519,7 @@ export function CommentThread({
   agentWorking = false,
   onStopAgent,
   isStopping = false,
+  streamingEvents = [],
 }: {
   taskId: string;
   comments: CommentView[];
@@ -266,6 +531,7 @@ export function CommentThread({
   agentWorking?: boolean;
   onStopAgent?: () => void;
   isStopping?: boolean;
+  streamingEvents?: ApiRunEvent[];
 }) {
   const [input, setInput] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -277,8 +543,13 @@ export function CommentThread({
   const [selectedAttachments, setSelectedAttachments] = useState<File[]>([]);
   const [selectedThinkingLevel, setSelectedThinkingLevel] =
     useState<CommentThinkingLevel>("default");
+  const [streamLogCollapsed, setStreamLogCollapsed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const streamLogCtx = useMemo(
+    () => ({ collapsed: streamLogCollapsed, toggle: () => setStreamLogCollapsed((v) => !v) }),
+    [streamLogCollapsed]
+  );
 
   const LONG_COMMENT_THRESHOLD = 400;
 
@@ -632,31 +903,41 @@ export function CommentThread({
       )}
 
       {agentWorking ? (
-        <div className="flex gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-tertiary/15">
-            <Icon name="smart_toy" size={16} filled className="text-tertiary" />
-          </div>
-          <div className="flex-1 flex items-center justify-between rounded-sm py-2.5 px-3 ghost border-tertiary/10">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-bounce [animation-delay:0ms]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-bounce [animation-delay:150ms]" />
-                <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-bounce [animation-delay:300ms]" />
-              </div>
-              <span className="text-sm text-tertiary font-medium">Agent is working</span>
+        <StreamLogContext.Provider value={streamLogCtx}>
+          <div className="flex gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-tertiary/15">
+              <Icon name="smart_toy" size={16} filled className="text-tertiary" />
             </div>
-            {onStopAgent ? (
-              <button
-                type="button"
-                onClick={onStopAgent}
-                disabled={isStopping}
-                className="text-[11px] text-on-surface-variant/40 hover:text-on-surface-variant transition-colors disabled:opacity-40"
-              >
-                {isStopping ? "Stopping..." : "Stop"}
-              </button>
-            ) : null}
+            <div className="flex-1 overflow-hidden rounded-xl border border-tertiary/10 bg-surface-container-low">
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-bounce [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-bounce [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-tertiary animate-bounce [animation-delay:300ms]" />
+                  </div>
+                  <span className="text-sm text-tertiary font-medium">Agent is working</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {streamingEvents.length > 0 && (
+                    <AgentStreamingLogToggle />
+                  )}
+                  {onStopAgent ? (
+                    <button
+                      type="button"
+                      onClick={onStopAgent}
+                      disabled={isStopping}
+                      className="text-[11px] text-on-surface-variant/40 hover:text-on-surface-variant transition-colors disabled:opacity-40"
+                    >
+                      {isStopping ? "Stopping..." : "Stop"}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <AgentStreamingLog events={streamingEvents} />
+            </div>
           </div>
-        </div>
+        </StreamLogContext.Provider>
       ) : null}
 
       {errorMessage ? (
