@@ -612,6 +612,7 @@ export function TaskDetailScreen({
               agentWorking={isRunActive}
               onStopAgent={() => void handleStop()}
               isStopping={isStopping}
+              streamingEvents={isRunActive ? runEvents : []}
             />
           </section>
 
