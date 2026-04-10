@@ -478,7 +478,9 @@ export const taskDetails: Record<string, TaskDetail> = {
     assignedAgent: { name: "Sigma-04", role: "Strategic Handoff Lead" },
     handoffAgent: null,
     workspace: "Marketing Automation / Retention",
+    useGitWorktree: false,
     branch: null,
+    gitWorktreePath: null,
     deadline: "Nov 15, 2024",
     attachments: [
       { name: "cohort_analysis_q3.pdf", size: "1.8 MB", type: "PDF Document", icon: "description" },
@@ -501,7 +503,9 @@ export const taskDetails: Record<string, TaskDetail> = {
     assignedAgent: { name: "Delta-9", role: "Creative Asset Synthesis" },
     handoffAgent: null,
     workspace: "Marketing Automation / Campaigns",
+    useGitWorktree: false,
     branch: null,
+    gitWorktreePath: null,
     deadline: "Oct 28, 2024",
     attachments: [
       { name: "landing_wireframes_v2.fig", size: "4.2 MB", type: "Figma File", icon: "design_services" },
@@ -527,7 +531,9 @@ export const taskDetails: Record<string, TaskDetail> = {
     assignedAgent: { name: "Agent Vulcan", role: "Deployment & Orchestration" },
     handoffAgent: null,
     workspace: "Marketing Automation / Lead Ops",
+    useGitWorktree: false,
     branch: null,
+    gitWorktreePath: null,
     deadline: "Oct 24, 2024",
     attachments: [
       { name: "model_weights_v3.bin", size: "128 MB", type: "Binary Model", icon: "memory" },
@@ -553,7 +559,9 @@ export const taskDetails: Record<string, TaskDetail> = {
     assignedAgent: { name: "Unassigned", role: "Pending allocation" },
     handoffAgent: null,
     workspace: "Marketing Automation / Email Ops",
+    useGitWorktree: false,
     branch: null,
+    gitWorktreePath: null,
     deadline: "Dec 01, 2024",
     attachments: [],
     executionLog: [
@@ -574,7 +582,9 @@ export const taskDetails: Record<string, TaskDetail> = {
     assignedAgent: { name: "Psi-Alpha", role: "Semantic Integrity Monitor" },
     handoffAgent: null,
     workspace: "Marketing Automation / Social",
+    useGitWorktree: false,
     branch: null,
+    gitWorktreePath: null,
     deadline: "Oct 30, 2024",
     attachments: [
       { name: "brand_voice_v4.2.pdf", size: "3.1 MB", type: "PDF Document", icon: "description" },
@@ -599,7 +609,9 @@ export const taskDetails: Record<string, TaskDetail> = {
     assignedAgent: { name: "Sigma-04", role: "Strategic Handoff Lead" },
     handoffAgent: null,
     workspace: "Marketing Automation / SEO",
+    useGitWorktree: false,
     branch: null,
+    gitWorktreePath: null,
     deadline: "Sep 30, 2024",
     attachments: [
       { name: "keyword_report_sept.xlsx", size: "2.1 MB", type: "Spreadsheet", icon: "table_chart" },

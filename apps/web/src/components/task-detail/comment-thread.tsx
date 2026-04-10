@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "@/components/ui/icon";
 import {
   addTaskComment,
   ApiError,
   type ApiAgent,
+  openLocalPath,
   type ApiRunEvent,
   type ApiThinkingLevel,
 } from "@/lib/api";
@@ -164,6 +165,68 @@ function CommentMarkdown({
   collapsed?: boolean;
   onToggle?: () => void;
 }) {
+  const parseOpenPathHref = (href: string | undefined) => {
+    if (!href) {
+      return null;
+    }
+
+    if (href.startsWith("nova-open://")) {
+      try {
+        return decodeURIComponent(href.slice("nova-open://".length));
+      } catch {
+        return href.slice("nova-open://".length);
+      }
+    }
+
+    return null;
+  };
+
+  const transformCommentHref = (href: string) => {
+    if (href.startsWith("nova-open://")) {
+      return href;
+    }
+
+    return defaultUrlTransform(href);
+  };
+
+  function OpenPathButton({
+    path,
+    children,
+  }: {
+    path: string;
+    children: React.ReactNode;
+  }) {
+    const [isOpening, setIsOpening] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    return (
+      <button
+        type="button"
+        title={error ?? path}
+        disabled={isOpening}
+        onClick={async () => {
+          try {
+            setIsOpening(true);
+            setError(null);
+            await openLocalPath(path);
+          } catch (openError) {
+            setError(
+              openError instanceof ApiError
+                ? openError.message
+                : "Could not open the requested path."
+            );
+          } finally {
+            setIsOpening(false);
+          }
+        }}
+        className="inline-flex items-center gap-1 rounded-full border border-secondary/20 bg-secondary/8 px-2.5 py-1 align-middle text-[11px] font-medium text-secondary transition-colors hover:bg-secondary/12 disabled:cursor-wait disabled:opacity-60"
+      >
+        <Icon name="folder_open" size={12} className="shrink-0" />
+        <span>{isOpening ? "Opening..." : children}</span>
+      </button>
+    );
+  }
+
   return (
     <div className="relative">
       <div
@@ -175,6 +238,7 @@ function CommentMarkdown({
       >
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
+          urlTransform={transformCommentHref}
           components={{
             p: ({ children }) => <p className="mb-2.5 last:mb-0">{renderWithMentions(children)}</p>,
             ul: ({ children }) => (
@@ -185,14 +249,24 @@ function CommentMarkdown({
             ),
             li: ({ children }) => <li className="marker:text-secondary">{renderWithMentions(children)}</li>,
             a: ({ children, href }) => (
-              <a
-                href={href}
-                target="_blank"
-                rel="noreferrer"
-                className="text-secondary underline underline-offset-4 transition-colors hover:text-secondary-dim"
-              >
-                {children}
-              </a>
+              (() => {
+                const openPath = parseOpenPathHref(href);
+
+                if (openPath) {
+                  return <OpenPathButton path={openPath}>{children}</OpenPathButton>;
+                }
+
+                return (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-secondary underline underline-offset-4 transition-colors hover:text-secondary-dim"
+                  >
+                    {children}
+                  </a>
+                );
+              })()
             ),
             strong: ({ children }) => (
               <strong className="font-semibold text-on-surface">{children}</strong>

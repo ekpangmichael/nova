@@ -11,6 +11,7 @@ type TaskFileInput = {
   gitBranchName?: string | null;
   gitBranchUrl?: string | null;
   gitRepoRoot?: string | null;
+  gitWorktreePath?: string | null;
 };
 
 type AgentContextFileInput = {
@@ -37,6 +38,7 @@ export const buildTaskFile = ({
   gitBranchName,
   gitBranchUrl,
   gitRepoRoot,
+  gitWorktreePath,
 }: TaskFileInput) => {
   const attachmentLines =
     attachments.length > 0
@@ -62,6 +64,7 @@ ${resolvedExecutionTarget}
 Branch: ${gitBranchName?.trim() || "None"}
 Branch Link: ${gitBranchUrl?.trim() || "None"}
 Repository Root: ${gitRepoRoot?.trim() || "None"}
+Worktree Path: ${gitWorktreePath?.trim() || "None"}
 
 - If a branch is provided, it is already assigned to this task. Stay on that branch for this task and all follow-up runs.
 - Do not create a new branch unless the operator explicitly asks for a different branch.

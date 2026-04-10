@@ -307,9 +307,11 @@ export type TaskRecord = {
   handoffAgentId: string | null;
   executionTargetOverride: string | null;
   resolvedExecutionTarget: string;
+  useGitWorktree: boolean;
   gitRepoRoot: string | null;
   gitBranchName: string | null;
   gitBranchUrl: string | null;
+  gitWorktreePath: string | null;
   dueAt: string | null;
   estimatedMinutes: number | null;
   labels: string[];

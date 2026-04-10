@@ -205,12 +205,14 @@ function buildTaskDetailView(
         }
       : null,
     workspace: task.resolvedExecutionTarget,
+    useGitWorktree: task.useGitWorktree,
     branch: task.gitBranchName
       ? {
           name: task.gitBranchName,
           url: task.gitBranchUrl,
         }
       : null,
+    gitWorktreePath: task.gitWorktreePath,
     deadline: task.dueAt
       ? formatAbsoluteTimestamp(task.dueAt, preferences, {
           month: "short",

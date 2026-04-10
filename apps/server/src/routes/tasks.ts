@@ -26,6 +26,7 @@ const createTaskSchema = z.object({
   assignedAgentId: z.string().uuid(),
   handoffAgentId: z.string().uuid().nullable().optional(),
   executionTargetOverride: z.string().nullable().optional(),
+  useGitWorktree: z.boolean().optional(),
   dueAt: z.string().nullable().optional(),
   estimatedMinutes: z.number().int().positive().nullable().optional(),
   labels: z.array(z.string()).optional(),

@@ -125,7 +125,9 @@ export type TaskDetail = {
   assignedAgent: { name: string; role: string };
   handoffAgent: { name: string; role: string } | null;
   workspace: string;
+  useGitWorktree: boolean;
   branch: { name: string; url: string | null } | null;
+  gitWorktreePath: string | null;
   deadline: string;
   attachments: TaskAttachment[];
   executionLog: ExecutionLogItem[];

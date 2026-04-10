@@ -85,6 +85,20 @@
       "when": 1775923200000,
       "tag": "0011_task_handoff_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776013200000,
+      "tag": "0012_task_git_worktree",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1776070800000,
+      "tag": "0013_task_use_git_worktree",
+      "breakpoints": true
     }
   ]
 }

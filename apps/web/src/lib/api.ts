@@ -410,6 +410,11 @@ export type ApiDashboardAttentionItem = {
   actionLabel: string;
 };
 
+export type ApiOpenLocalPathResult = {
+  path: string;
+  kind: "directory" | "file";
+};
+
 export type ApiTaskComment = {
   id: string;
   taskId: string;
@@ -506,9 +511,11 @@ export type ApiTaskSummary = {
   handoffAgentId: string | null;
   executionTargetOverride: string | null;
   resolvedExecutionTarget: string;
+  useGitWorktree: boolean;
   gitRepoRoot: string | null;
   gitBranchName: string | null;
   gitBranchUrl: string | null;
+  gitWorktreePath: string | null;
   dueAt: string | null;
   estimatedMinutes: number | null;
   labels: string[];
@@ -597,6 +604,7 @@ export type CreateTaskInput = {
   assignedAgentId: string;
   handoffAgentId?: string | null;
   executionTargetOverride?: string | null;
+  useGitWorktree?: boolean;
   dueAt?: string | null;
   estimatedMinutes?: number | null;
   labels?: string[];
@@ -693,6 +701,16 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function getProjects() {
   return requestJson<ApiProjectSummary[]>("/projects");
+}
+
+export async function openLocalPath(path: string) {
+  return requestJson<ApiOpenLocalPathResult>("/system/open-path", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 }
 
 export async function getProject(projectId: string) {

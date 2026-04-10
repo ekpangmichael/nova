@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { access, copyFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { access, copyFile, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
 import {
   and,
@@ -91,7 +91,11 @@ import {
   sanitizeFileName,
 } from "../lib/paths.js";
 import { humanizeAgentOperatorMessage } from "../lib/agent-operator-message.js";
-import { buildBranchUrl, buildTaskBranchName } from "../lib/task-branch.js";
+import {
+  buildBranchUrl,
+  buildTaskBranchName,
+  buildTaskWorktreeName,
+} from "../lib/task-branch.js";
 import { ACTIVE_RUN_STATUSES, canManuallyTransitionTask } from "../lib/task-state.js";
 import { buildAgentContextFile, buildRuntimePrompt, buildTaskFile } from "../lib/task-file.js";
 import { generateId, nowIso, parseJsonText, slugify, stringifyJson } from "../lib/utils.js";
@@ -164,6 +168,7 @@ type CreateTaskInput = {
   assignedAgentId: string;
   handoffAgentId?: string | null;
   executionTargetOverride?: string | null;
+  useGitWorktree?: boolean;
   dueAt?: string | null;
   estimatedMinutes?: number | null;
   labels?: string[];
@@ -254,6 +259,8 @@ type TaskGitContext = {
   repoRoot: string | null;
   branchName: string | null;
   branchUrl: string | null;
+  worktreePath: string | null;
+  runtimeExecutionTarget: string;
 };
 
 type RunBridgeTokenRecord = {
@@ -1193,6 +1200,10 @@ export class NovaService {
       });
     }
 
+    for (const task of projectTaskRows) {
+      await this.#removeTaskWorktree(task);
+    }
+
     for (const run of runRows) {
       this.#activeRuns.delete(run.id);
       this.#deleteRunBridgeToken(run.id);
@@ -2027,6 +2038,7 @@ export class NovaService {
               ? normalizeProjectPath(input.executionTargetOverride)
               : null,
           resolvedExecutionTarget: target.normalizedPath,
+          useGitWorktree: input.useGitWorktree ?? false,
           dueAt: input.dueAt ?? null,
           estimatedMinutes: input.estimatedMinutes ?? null,
           labelsJson: stringifyJson(input.labels ?? []),
@@ -2059,6 +2071,14 @@ export class NovaService {
 
     if (currentRun && patch.executionTargetOverride !== undefined) {
       throw conflict("Cannot change execution target while a run is active.");
+    }
+
+    if (
+      currentRun &&
+      patch.useGitWorktree !== undefined &&
+      patch.useGitWorktree !== current.useGitWorktree
+    ) {
+      throw conflict("Cannot change git worktree mode while a run is active.");
     }
 
     if (
@@ -2107,6 +2127,10 @@ export class NovaService {
               : null
             : current.executionTargetOverride,
         resolvedExecutionTarget: nextResolvedTarget.normalizedPath,
+        useGitWorktree:
+          patch.useGitWorktree !== undefined
+            ? patch.useGitWorktree
+            : current.useGitWorktree,
         dueAt: patch.dueAt !== undefined ? patch.dueAt : current.dueAt,
         estimatedMinutes:
           patch.estimatedMinutes !== undefined
@@ -2177,6 +2201,8 @@ export class NovaService {
       recursive: true,
       force: true,
     });
+
+    await this.#removeTaskWorktree(task);
 
     for (const run of runRows) {
       await rm(`${agent.agentHomePath}/.apm/runs/${run.id}`, {
@@ -2498,6 +2524,7 @@ export class NovaService {
       executionTarget: resolvedTarget.absolutePath,
       taskId,
     });
+    const runtimeExecutionTarget = taskGitContext.runtimeExecutionTarget;
     const previousRuntimeSessionKey =
       agent.runtimeKind === "codex" || agent.runtimeKind === "claude-code"
         ? await this.#getLatestReusableRuntimeSessionKey(
@@ -2552,12 +2579,13 @@ export class NovaService {
       agentName: agent.name,
       title: task.title,
       description: task.description,
-      resolvedExecutionTarget: resolvedTarget.normalizedPath,
+      resolvedExecutionTarget: runtimeExecutionTarget,
       attachments: attachmentNames,
       extraInstructions: followUpInstructions,
       gitBranchName: taskGitContext.branchName,
       gitBranchUrl: taskGitContext.branchUrl,
       gitRepoRoot: taskGitContext.repoRoot,
+      gitWorktreePath: taskGitContext.worktreePath,
     });
     const agentContextFile = buildAgentContextFile({
       agentName: agent.name,
@@ -2625,7 +2653,7 @@ export class NovaService {
         agentId: agent.id,
         runtimeAgentId: agent.runtimeAgentId,
         agentHomePath: agent.agentHomePath,
-        executionTarget: resolvedTarget.normalizedPath,
+        executionTarget: runtimeExecutionTarget,
         prompt: buildRuntimePrompt(runId, {
           followUpInstructions,
           taskFilePath: `${runDir}/TASK.md`,
@@ -4238,6 +4266,15 @@ export class NovaService {
       }
     }
 
+    if (input.task.gitWorktreePath) {
+      lines.push(
+        `Worktree: [Open worktree directory](${this.#buildOpenPathLink(
+          input.task.gitWorktreePath
+        )})`,
+        `Worktree path: \`${input.task.gitWorktreePath}\``
+      );
+    }
+
     lines.push(
       "",
       "Focus on correctness, edge cases, regressions, and pull-request readiness."
@@ -4248,6 +4285,42 @@ export class NovaService {
     }
 
     return lines.join("\n");
+  }
+
+  #appendTaskLocationToOperatorComment(
+    body: string,
+    task: typeof tasks.$inferSelect
+  ) {
+    const trimmedBody = body.trim();
+
+    if (!task.gitWorktreePath) {
+      return trimmedBody;
+    }
+
+    const normalizedPath = task.gitWorktreePath.trim();
+
+    if (!normalizedPath) {
+      return trimmedBody;
+    }
+
+    if (
+      trimmedBody.includes(normalizedPath) ||
+      trimmedBody.includes("Open worktree directory")
+    ) {
+      return trimmedBody;
+    }
+
+    return [
+      trimmedBody,
+      "",
+      "Worktree location:",
+      `- [Open worktree directory](${this.#buildOpenPathLink(normalizedPath)})`,
+      `- Path: \`${normalizedPath}\``,
+    ].join("\n");
+  }
+
+  #buildOpenPathLink(path: string) {
+    return `nova-open://${encodeURIComponent(path)}`;
   }
 
   async #shouldAutoContinueAfterClaudeMaxTurns(input: {
@@ -4385,6 +4458,7 @@ export class NovaService {
     agentId: string,
     runtimeSessionKey: string
   ) {
+    const task = await this.#getTaskRow(taskId);
     const run = await this.#getRunRow(runId);
     const adapter = this.#runtimeManager.getAdapter(run.runtimeKind);
     const messages = await adapter.loadSessionHistory(runtimeSessionKey);
@@ -4403,7 +4477,10 @@ export class NovaService {
       authorId: agentId,
       source: "agent_mirror",
       externalMessageId: latestAssistantMessage.id,
-      body: humanizeAgentOperatorMessage(latestAssistantMessage.text),
+      body: this.#appendTaskLocationToOperatorComment(
+        humanizeAgentOperatorMessage(latestAssistantMessage.text),
+        task
+      ),
       createdAt: latestAssistantMessage.timestamp ?? nowIso(),
     });
   }
@@ -4465,23 +4542,57 @@ export class NovaService {
     const repoRoot = await this.#findGitRepoRoot(input.executionTarget);
 
     if (!repoRoot) {
+      await this.#removeTaskWorktree(task);
       await this.#persistTaskGitContext(task.id, {
         repoRoot: null,
         branchName: null,
         branchUrl: null,
+        worktreePath: null,
+        runtimeExecutionTarget: input.executionTarget,
       }, task);
 
       return {
         repoRoot: null,
         branchName: null,
         branchUrl: null,
+        worktreePath: null,
+        runtimeExecutionTarget: input.executionTarget,
       };
     }
 
     const branchName =
       task.gitBranchName ?? buildTaskBranchName(task.taskNumber, task.title, input.taskId);
+    if (task.useGitWorktree) {
+      const worktreePath = await this.#ensureTaskWorktree(task, repoRoot, branchName);
 
-    await this.#checkoutTaskBranch(repoRoot, branchName);
+      const remoteUrl = await this.#getGitRemoteOrigin(repoRoot);
+      const branchUrl = buildBranchUrl(remoteUrl, branchName);
+      const nextContext = {
+        repoRoot,
+        branchName,
+        branchUrl,
+        worktreePath,
+        runtimeExecutionTarget: await this.#resolveTaskWorktreeExecutionTarget(
+          repoRoot,
+          worktreePath,
+          input.executionTarget
+        ),
+      };
+
+      const previousWorktreePath = task.gitWorktreePath
+        ? await this.#canonicalizeManagedWorktreePath(task.gitWorktreePath)
+        : null;
+
+      if (previousWorktreePath && previousWorktreePath !== worktreePath) {
+        await this.#removeTaskWorktree(task);
+      }
+
+      await this.#persistTaskGitContext(task.id, nextContext, task);
+
+      return nextContext;
+    }
+
+    await this.#ensureTaskBranchCheckout(task, repoRoot, branchName);
 
     const remoteUrl = await this.#getGitRemoteOrigin(repoRoot);
     const branchUrl = buildBranchUrl(remoteUrl, branchName);
@@ -4489,7 +4600,13 @@ export class NovaService {
       repoRoot,
       branchName,
       branchUrl,
+      worktreePath: null,
+      runtimeExecutionTarget: input.executionTarget,
     };
+
+    if (task.gitWorktreePath) {
+      await this.#removeTaskWorktree(task);
+    }
 
     await this.#persistTaskGitContext(task.id, nextContext, task);
 
@@ -4506,7 +4623,8 @@ export class NovaService {
     if (
       currentTask.gitRepoRoot === next.repoRoot &&
       currentTask.gitBranchName === next.branchName &&
-      currentTask.gitBranchUrl === next.branchUrl
+      currentTask.gitBranchUrl === next.branchUrl &&
+      currentTask.gitWorktreePath === next.worktreePath
     ) {
       return;
     }
@@ -4517,6 +4635,7 @@ export class NovaService {
         gitRepoRoot: next.repoRoot,
         gitBranchName: next.branchName,
         gitBranchUrl: next.branchUrl,
+        gitWorktreePath: next.worktreePath,
         updatedAt: nowIso(),
       })
       .where(eq(tasks.id, taskId))
@@ -4542,11 +4661,218 @@ export class NovaService {
     }
   }
 
-  async #checkoutTaskBranch(repoRoot: string, branchName: string) {
-    const currentBranch = await this.#getCurrentGitBranch(repoRoot);
+  async #gitBranchExists(repoRoot: string, branchName: string) {
+    try {
+      await this.#runGit(
+        repoRoot,
+        ["rev-parse", "--verify", "--quiet", `refs/heads/${branchName}`],
+        ""
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return false;
+      }
 
-    if (currentBranch === branchName) {
+      throw error;
+    }
+  }
+
+  #gitWorktreesBaseDir() {
+    return normalizeAbsolutePath(join(this.#env.appDataDir, "git-worktrees"));
+  }
+
+  #normalizeManagedPathForComparison(path: string) {
+    const normalizedPath = normalizeAbsolutePath(path);
+
+    if (process.platform !== "darwin") {
+      return normalizedPath;
+    }
+
+    return normalizedPath.replace(/^\/var\//, "/private/var/");
+  }
+
+  #isManagedTaskWorktreePath(path: string) {
+    const baseDir = this.#normalizeManagedPathForComparison(
+      this.#gitWorktreesBaseDir()
+    );
+    const candidatePath = this.#normalizeManagedPathForComparison(path);
+    return candidatePath === baseDir || candidatePath.startsWith(`${baseDir}/`);
+  }
+
+  #buildTaskWorktreePath(task: typeof tasks.$inferSelect, repoRoot: string) {
+    const repoHash = createHash("sha1")
+      .update(repoRoot)
+      .digest("hex")
+      .slice(0, 12);
+    const worktreeName = buildTaskWorktreeName(
+      task.taskNumber,
+      task.title,
+      task.id
+    );
+
+    return normalizeAbsolutePath(
+      join(this.#gitWorktreesBaseDir(), repoHash, worktreeName)
+    );
+  }
+
+  async #canonicalizeManagedWorktreePath(path: string) {
+    const normalizedPath = normalizeAbsolutePath(path);
+
+    if (!this.#isManagedTaskWorktreePath(normalizedPath)) {
+      return normalizedPath;
+    }
+
+    try {
+      return normalizeAbsolutePath(await realpath(normalizedPath));
+    } catch {
+      try {
+        const parentPath = await realpath(dirname(normalizedPath));
+        return normalizeAbsolutePath(join(parentPath, basename(normalizedPath)));
+      } catch {
+        return normalizedPath;
+      }
+    }
+  }
+
+  async #canonicalizeComparablePath(path: string) {
+    const normalizedPath = normalizeAbsolutePath(path);
+    let cursor = normalizedPath;
+    const suffixSegments: string[] = [];
+
+    while (true) {
+      try {
+        const resolvedPath = normalizeAbsolutePath(await realpath(cursor));
+        return suffixSegments.length > 0
+          ? normalizeAbsolutePath(join(resolvedPath, ...suffixSegments))
+          : resolvedPath;
+      } catch {
+        const parentPath = dirname(cursor);
+
+        if (parentPath === cursor) {
+          return normalizedPath;
+        }
+
+        suffixSegments.unshift(basename(cursor));
+        cursor = parentPath;
+      }
+    }
+  }
+
+  async #ensureTaskWorktree(
+    task: typeof tasks.$inferSelect,
+    repoRoot: string,
+    branchName: string
+  ) {
+    const worktrees = await this.#listGitWorktrees(repoRoot);
+    const legacyMainWorktree = worktrees.find(
+      (worktree) => worktree.path === repoRoot && worktree.branchName === branchName
+    );
+
+    if (legacyMainWorktree) {
+      return repoRoot;
+    }
+
+    const existingWorktreeForBranch = worktrees.find(
+      (worktree) => worktree.path !== repoRoot && worktree.branchName === branchName
+    );
+
+    if (existingWorktreeForBranch) {
+      return existingWorktreeForBranch.path;
+    }
+
+    const desiredWorktreePath = await this.#canonicalizeManagedWorktreePath(
+      task.gitWorktreePath && this.#isManagedTaskWorktreePath(task.gitWorktreePath)
+        ? normalizeAbsolutePath(task.gitWorktreePath)
+        : this.#buildTaskWorktreePath(task, repoRoot)
+    );
+
+    if (!this.#isManagedTaskWorktreePath(desiredWorktreePath)) {
+      throw conflict("Task worktree path is outside the Nova-managed worktree directory.");
+    }
+
+    const conflictingWorktreeAtPath = worktrees.find(
+      (worktree) =>
+        worktree.path === desiredWorktreePath && worktree.branchName !== branchName
+    );
+
+    if (conflictingWorktreeAtPath) {
+      await this.#removeManagedGitWorktree(repoRoot, desiredWorktreePath);
+    }
+
+    await mkdir(dirname(desiredWorktreePath), { recursive: true });
+    await rm(desiredWorktreePath, { recursive: true, force: true });
+
+    const branchExists = await this.#gitBranchExists(repoRoot, branchName);
+
+    if (branchExists) {
+      await this.#runGit(
+        repoRoot,
+        ["worktree", "add", desiredWorktreePath, branchName],
+        `Failed to create the task worktree for ${branchName}.`
+      );
+      return desiredWorktreePath;
+    }
+
+    const hasHead = await this.#gitHasCommittedHead(repoRoot);
+
+    if (hasHead) {
+      await this.#runGit(
+        repoRoot,
+        ["worktree", "add", "-b", branchName, desiredWorktreePath],
+        `Failed to create the task worktree for ${branchName}.`
+      );
+      return desiredWorktreePath;
+    }
+
+    await this.#runGit(
+      repoRoot,
+      ["worktree", "add", "--orphan", desiredWorktreePath],
+      `Failed to create the initial task worktree for ${branchName}.`
+    );
+    await this.#runGit(
+      desiredWorktreePath,
+      ["branch", "-m", branchName],
+      `Failed to rename the task worktree branch ${branchName}.`
+    );
+
+    return desiredWorktreePath;
+  }
+
+  async #ensureTaskBranchCheckout(
+    task: typeof tasks.$inferSelect,
+    repoRoot: string,
+    branchName: string
+  ) {
+    const worktrees = await this.#listGitWorktrees(repoRoot);
+    const existingMainWorktree = worktrees.find(
+      (worktree) => worktree.path === repoRoot && worktree.branchName === branchName
+    );
+
+    if (existingMainWorktree) {
       return;
+    }
+
+    const existingWorktreeForBranch = worktrees.find(
+      (worktree) => worktree.path !== repoRoot && worktree.branchName === branchName
+    );
+
+    if (existingWorktreeForBranch) {
+      const previousManagedWorktreePath = task.gitWorktreePath
+        ? await this.#canonicalizeManagedWorktreePath(task.gitWorktreePath)
+        : null;
+
+      if (
+        previousManagedWorktreePath &&
+        previousManagedWorktreePath === existingWorktreeForBranch.path &&
+        this.#isManagedTaskWorktreePath(existingWorktreeForBranch.path)
+      ) {
+        await this.#removeManagedGitWorktree(repoRoot, existingWorktreeForBranch.path);
+      } else {
+        throw conflict(
+          `Task branch ${branchName} is already checked out in another worktree.`
+        );
+      }
     }
 
     const branchExists = await this.#gitBranchExists(repoRoot, branchName);
@@ -4573,44 +4899,122 @@ export class NovaService {
 
     await this.#runGit(
       repoRoot,
-      ["checkout", "--orphan", branchName],
+      ["switch", "--orphan", branchName],
       `Failed to create the initial task branch ${branchName}.`
     );
   }
 
-  async #gitBranchExists(repoRoot: string, branchName: string) {
-    try {
-      await this.#runGit(
-        repoRoot,
-        ["rev-parse", "--verify", "--quiet", `refs/heads/${branchName}`],
-        ""
-      );
-      return true;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        return false;
+  async #listGitWorktrees(repoRoot: string) {
+    const { stdout } = await this.#runGit(
+      repoRoot,
+      ["worktree", "list", "--porcelain"],
+      "Failed to inspect git worktrees."
+    );
+    const entries: Array<{ path: string; branchName: string | null }> = [];
+    let current: { path: string; branchName: string | null } | null = null;
+
+    for (const rawLine of stdout.split(/\r?\n/)) {
+      const line = rawLine.trimEnd();
+
+      if (!line) {
+        if (current) {
+          entries.push(current);
+          current = null;
+        }
+        continue;
       }
 
-      throw error;
+      if (line.startsWith("worktree ")) {
+        if (current) {
+          entries.push(current);
+        }
+
+        current = {
+          path: normalizeAbsolutePath(line.slice("worktree ".length).trim()),
+          branchName: null,
+        };
+        continue;
+      }
+
+      if (current && line.startsWith("branch ")) {
+        const ref = line.slice("branch ".length).trim();
+        current.branchName = ref.startsWith("refs/heads/")
+          ? ref.slice("refs/heads/".length)
+          : ref;
+      }
     }
+
+    if (current) {
+      entries.push(current);
+    }
+
+    return entries;
   }
 
-  async #getCurrentGitBranch(repoRoot: string) {
-    try {
-      const { stdout } = await this.#runGit(
-        repoRoot,
-        ["branch", "--show-current"],
-        ""
-      );
-      const branch = stdout.trim();
-      return branch.length > 0 ? branch : null;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        return null;
+  async #resolveTaskWorktreeExecutionTarget(
+    repoRoot: string,
+    worktreePath: string,
+    executionTarget: string
+  ) {
+    if (worktreePath === repoRoot) {
+      return executionTarget;
+    }
+
+    const comparableRepoRoot = await this.#canonicalizeComparablePath(repoRoot);
+    const comparableExecutionTarget =
+      await this.#canonicalizeComparablePath(executionTarget);
+    const relativeTarget = relative(comparableRepoRoot, comparableExecutionTarget);
+
+    if (!relativeTarget || relativeTarget === "") {
+      return normalizeAbsolutePath(worktreePath);
+    }
+
+    if (
+      relativeTarget === ".." ||
+      relativeTarget.startsWith("../") ||
+      relativeTarget.startsWith("..\\")
+    ) {
+      throw conflict("Execution target escapes the detected Git repository.");
+    }
+
+    return resolvePathWithinBase(worktreePath, relativeTarget.replace(/\\/g, "/"))
+      .absolutePath;
+  }
+
+  async #removeTaskWorktree(task: {
+    gitRepoRoot: string | null;
+    gitWorktreePath: string | null;
+  }) {
+    if (!task.gitWorktreePath || !this.#isManagedTaskWorktreePath(task.gitWorktreePath)) {
+      return;
+    }
+
+    await this.#removeManagedGitWorktree(
+      task.gitRepoRoot,
+      await this.#canonicalizeManagedWorktreePath(task.gitWorktreePath)
+    );
+  }
+
+  async #removeManagedGitWorktree(repoRoot: string | null, worktreePath: string) {
+    if (!this.#isManagedTaskWorktreePath(worktreePath)) {
+      return;
+    }
+
+    if (repoRoot) {
+      try {
+        await this.#runGit(repoRoot, ["worktree", "remove", "--force", worktreePath], "");
+      } catch {
+        // Fall through to filesystem cleanup.
       }
 
-      throw error;
+      try {
+        await this.#runGit(repoRoot, ["worktree", "prune"], "");
+      } catch {
+        // Ignore prune failures during cleanup.
+      }
     }
+
+    await rm(worktreePath, { recursive: true, force: true });
   }
 
   async #gitHasCommittedHead(repoRoot: string) {
@@ -5614,9 +6018,11 @@ Authorization: Bearer <token from NOVA_RUNTIME.json>
       handoffAgentId: row.handoffAgentId,
       executionTargetOverride: row.executionTargetOverride,
       resolvedExecutionTarget: row.resolvedExecutionTarget,
+      useGitWorktree: row.useGitWorktree,
       gitRepoRoot: row.gitRepoRoot,
       gitBranchName: row.gitBranchName,
       gitBranchUrl: row.gitBranchUrl,
+      gitWorktreePath: row.gitWorktreePath,
       dueAt: row.dueAt,
       estimatedMinutes: row.estimatedMinutes,
       labels: parseJsonText<string[]>(row.labelsJson, []),
