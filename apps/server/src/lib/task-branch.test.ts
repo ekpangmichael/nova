@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBranchUrl, buildTaskBranchName } from "./task-branch.js";
+import { buildBranchUrl, buildTaskBranchName, buildTaskWorktreeName } from "./task-branch.js";
 
 describe("task-branch", () => {
   it("builds a stable task branch name", () => {
@@ -10,6 +10,16 @@ describe("task-branch", () => {
         "08540143-b5aa-4bdd-9983-a5f503811320"
       )
     ).toBe("nova/task-007-design-a-landing-page-for-orbit-shop-08540143");
+  });
+
+  it("builds a stable task worktree name", () => {
+    expect(
+      buildTaskWorktreeName(
+        7,
+        "Design a landing page for Orbit Shop",
+        "08540143-b5aa-4bdd-9983-a5f503811320"
+      )
+    ).toBe("task-007-design-a-landing-page-for-orbit-shop-08540143");
   });
 
   it("builds a GitHub branch URL from ssh and https remotes", () => {

@@ -61,6 +61,7 @@ function NewTaskPageContent() {
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<(typeof priorities)[number]["value"]>("medium");
   const [executionTargetOverride, setExecutionTargetOverride] = useState("");
+  const [useGitWorktree, setUseGitWorktree] = useState(false);
   const [dueAt, setDueAt] = useState("");
   const [labels, setLabels] = useState("");
   const [technicalInstructions, setTechnicalInstructions] = useState("");
@@ -192,6 +193,7 @@ function NewTaskPageContent() {
         assignedAgentId,
         handoffAgentId: handoffAgentId || null,
         executionTargetOverride: executionTargetOverride.trim() || null,
+        useGitWorktree,
         dueAt: dueAt || null,
         labels: labels
           .split(",")
@@ -517,6 +519,60 @@ function NewTaskPageContent() {
                 className="w-full bg-surface-container-low px-4 py-3 text-sm text-on-surface ghost placeholder:text-on-surface-variant/25 focus:outline-none focus:ring-0"
                 placeholder="backend, monitor, launch"
               />
+            </div>
+
+            {/* Git worktree isolation — full-width toggle */}
+            <div className="md:col-span-2">
+              <button
+                type="button"
+                onClick={() => setUseGitWorktree((current) => !current)}
+                className={`group flex w-full items-center gap-4 rounded-lg border px-4 py-3.5 text-left transition-all ${
+                  useGitWorktree
+                    ? "border-secondary/20 bg-secondary/[0.06]"
+                    : "border-outline-variant/10 bg-surface-container-low hover:border-outline-variant/20"
+                }`}
+              >
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                    useGitWorktree
+                      ? "bg-secondary/15 text-secondary"
+                      : "bg-surface-container-high/60 text-on-surface-variant/40"
+                  }`}
+                >
+                  <Icon name="account_tree" size={18} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-on-surface">
+                      Use a separate worktree
+                    </span>
+                    {useGitWorktree && (
+                      <span className="rounded-full bg-secondary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-secondary">
+                        On
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-on-surface-variant/60">
+                    {useGitWorktree
+                      ? "The agent works on a copy of the repo so it won't affect your main checkout."
+                      : "The agent works directly in the project directory."}
+                  </p>
+                </div>
+
+                {/* Toggle track */}
+                <div
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    useGitWorktree ? "bg-secondary" : "bg-on-surface-variant/15"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      useGitWorktree ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </div>
+              </button>
             </div>
           </div>
         </section>

@@ -67,6 +67,15 @@ export function TaskMetadata({ task }: { task: TaskDetail }) {
           </p>
         </div>
 
+        <div className="px-5 py-4">
+          <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+            Git mode
+          </p>
+          <p className="text-[12px] text-on-surface/60">
+            {task.useGitWorktree ? "Isolated worktree" : "Shared checkout"}
+          </p>
+        </div>
+
         {task.branch ? (
           <div className="px-5 py-4">
             <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
@@ -90,6 +99,20 @@ export function TaskMetadata({ task }: { task: TaskDetail }) {
                 {task.branch.name}
               </p>
             )}
+          </div>
+        ) : null}
+
+        {task.gitWorktreePath ? (
+          <div className="px-5 py-4">
+            <p className="mb-1.5 font-mono text-[9px] uppercase tracking-wider text-on-surface-variant/35">
+              Git worktree
+            </p>
+            <p
+              className="truncate font-mono text-[12px] text-on-surface/60"
+              title={task.gitWorktreePath}
+            >
+              {task.gitWorktreePath}
+            </p>
           </div>
         ) : null}
 

@@ -62,6 +62,7 @@ export function EditTaskForm({
   const [executionTargetOverride, setExecutionTargetOverride] = useState(
     task.executionTargetOverride ?? ""
   );
+  const [useGitWorktree, setUseGitWorktree] = useState(task.useGitWorktree);
   const [dueAt, setDueAt] = useState(formatDueDate(task.dueAt));
   const [labels, setLabels] = useState(task.labels.join(", "));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -160,6 +161,7 @@ export function EditTaskForm({
         assignedAgentId,
         handoffAgentId: handoffAgentId || null,
         executionTargetOverride: executionTargetOverride.trim() || null,
+        useGitWorktree,
         dueAt: dueAt || null,
         labels: labels
           .split(",")
@@ -375,6 +377,41 @@ export function EditTaskForm({
                   className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-outline"
                 />
               </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-[10px] uppercase tracking-widest text-outline">
+                Git worktree isolation
+              </label>
+              <button
+                type="button"
+                onClick={() => setUseGitWorktree((current) => !current)}
+                className="flex w-full items-start justify-between gap-4 bg-surface-container-low px-4 py-3 ghost"
+              >
+                <div className="text-left">
+                  <p className="text-sm text-on-surface">
+                    {useGitWorktree ? "Enabled" : "Disabled"}
+                  </p>
+                  <p className="mt-1 text-xs text-on-surface-variant">
+                    {useGitWorktree
+                      ? "Run this ticket in its own isolated Git worktree and task branch."
+                      : "Use the shared Execution Target directly and switch the task branch in that checkout."}
+                  </p>
+                </div>
+                <span
+                  className={`mt-0.5 inline-flex h-6 w-11 rounded-full p-1 transition-colors ${
+                    useGitWorktree ? "bg-secondary/20" : "bg-outline/15"
+                  }`}
+                >
+                  <span
+                    className={`h-4 w-4 rounded-full transition-transform ${
+                      useGitWorktree
+                        ? "translate-x-5 bg-secondary"
+                        : "translate-x-0 bg-on-surface-variant/50"
+                    }`}
+                  />
+                </span>
+              </button>
             </div>
 
             <div>

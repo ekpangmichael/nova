@@ -17,6 +17,7 @@ describe("task-file", () => {
       gitBranchUrl:
         "https://github.com/openai/nova/tree/nova/task-001-implement-backend-slice-task1234",
       gitRepoRoot: "/workspace/projects/nova",
+      gitWorktreePath: "/workspace/.nova-worktrees/task-001-implement-backend-slice-task1234",
     });
 
     expect(taskFile).toContain("Task ID: task-123");
@@ -29,6 +30,9 @@ describe("task-file", () => {
     expect(taskFile).toContain("Stay within the execution target.");
     expect(taskFile).toContain("nova/task-001-implement-backend-slice-task1234");
     expect(taskFile).toContain("https://github.com/openai/nova/tree/");
+    expect(taskFile).toContain(
+      "Worktree Path: /workspace/.nova-worktrees/task-001-implement-backend-slice-task1234"
+    );
   });
 
   it("builds the runtime prompt from the run id", () => {

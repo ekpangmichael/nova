@@ -18,6 +18,9 @@ const wait = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+const canonicalizeTmpPath = (input: string) =>
+  process.platform === "darwin" ? input.replace(/^\/var\//, "/private/var/") : input;
+
 const waitFor = async <T>(
   load: () => Promise<T>,
   predicate: (value: T) => boolean,
@@ -157,18 +160,40 @@ const readErrorMessage = (response: { body: string }) => {
 };
 
 const runGit = async (cwd: string, args: string[]) => {
-  return execFileAsync("git", ["-c", "commit.gpgsign=false", ...args], {
-    cwd,
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: "0",
-    },
-  });
+  try {
+    return await execFileAsync("git", ["-c", "commit.gpgsign=false", ...args], {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    });
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error && typeof error.stderr === "string"
+        ? error.stderr.trim()
+        : "";
+    const stdout =
+      error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string"
+        ? error.stdout.trim()
+        : "";
+    throw new Error(stderr || stdout || `git ${args.join(" ")} failed`);
+  }
 };
 
 const initGitRepo = async (repoPath: string, remoteUrl?: string) => {
   await runGit(repoPath, ["init", "-b", "main"]);
   await writeFile(join(repoPath, "README.md"), "# Nova Test Repo\n", "utf8");
+  await runGit(repoPath, ["add", "README.md"]);
+  await runGit(repoPath, [
+    "-c",
+    "user.name=Nova Test",
+    "-c",
+    "user.email=nova-tests@example.com",
+    "commit",
+    "-m",
+    "Initial commit",
+  ]);
 
   if (remoteUrl) {
     try {
@@ -2136,14 +2161,224 @@ describe("server integration", () => {
     currentContext = setup.context;
     currentAppDataDir = setup.appDataDir;
 
+    const sharedRepoPath = join(setup.appDataDir, "shared-branch-project");
+    await mkdir(sharedRepoPath, { recursive: true });
+    await initGitRepo(sharedRepoPath, "git@github.com:openai/orbit-shop.git");
+
     const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
       name: "Branch Project",
       description: "Ensures task branches are stable across follow-ups.",
-      projectRoot: "projects/branch-project",
+      projectRoot: sharedRepoPath,
+      seedType: "none",
+    });
+    const { body: firstAgent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Branch Agent",
+      role: "Implementation",
+      systemInstructions: "Follow TASK.md and stay on the provided branch.",
+    });
+    const { body: secondAgent } = await requestJson(currentContext, "POST", "/api/agents", {
+      name: "Review Agent",
+      role: "Implementation",
+      systemInstructions: "Follow TASK.md and stay on the provided branch.",
+    });
+
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${firstAgent.id}`
+    );
+    await requestJson(
+      currentContext,
+      "POST",
+      `/api/projects/${project.id}/agents/${secondAgent.id}`
+    );
+
+    const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Design a landing page",
+      description: "Implement the first marketing page.",
+      assignedAgentId: firstAgent.id,
+      executionTargetOverride: project.projectRoot,
+      useGitWorktree: true,
+    });
+
+    const { body: firstRun, response: firstStartResponse } = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+    expect(firstStartResponse.statusCode).toBe(200);
+
+    const firstTaskState = await waitFor(
+      async () =>
+        (await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)).body,
+      (value) =>
+        typeof value.gitBranchName === "string" &&
+        value.gitBranchName.length > 0 &&
+        typeof value.gitBranchUrl === "string" &&
+        value.gitBranchUrl.includes("/tree/") &&
+        typeof value.gitWorktreePath === "string" &&
+        value.gitWorktreePath.length > 0,
+      4_000
+    );
+
+    expect(firstTaskState.gitBranchName).toContain("nova/task-001-design-a-landing-page");
+    expect(firstTaskState.gitRepoRoot).toBe(
+      canonicalizeTmpPath(normalizeAbsolutePath(sharedRepoPath))
+    );
+    expect(firstTaskState.gitWorktreePath).toContain(
+      join(currentAppDataDir!, "git-worktrees")
+    );
+    expect(firstTaskState.gitBranchUrl).toContain(
+      `https://github.com/openai/orbit-shop/tree/${firstTaskState.gitBranchName}`
+    );
+    expect(await access(firstTaskState.gitWorktreePath!)).toBeUndefined();
+    expect((await runGit(sharedRepoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
+      "main"
+    );
+    expect(
+      (
+        await runGit(canonicalizeTmpPath(firstTaskState.gitWorktreePath!), [
+          "branch",
+          "--show-current",
+        ])
+      ).stdout.trim()
+    ).toBe(
+      firstTaskState.gitBranchName
+    );
+
+    const firstTaskFile = await readFile(
+      join(firstAgent.agentHomePath, ".apm", "runs", firstRun.id, "TASK.md"),
+      "utf8"
+    );
+    expect(firstTaskFile).toContain(`Branch: ${firstTaskState.gitBranchName}`);
+    expect(firstTaskFile).toContain(`Worktree Path: ${firstTaskState.gitWorktreePath}`);
+    expect(firstTaskFile).toContain(
+      "operator wants you to open a pull request from that branch"
+    );
+
+    await waitFor(
+      async () =>
+        (await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)).body,
+      (value) => value.currentRun === null && value.recentRuns.length >= 1,
+      4_000
+    );
+
+    const { body: secondRun, response: secondStartResponse } = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${task.id}/start`
+    );
+    expect(secondStartResponse.statusCode).toBe(200);
+
+    const secondTaskFile = await readFile(
+      join(firstAgent.agentHomePath, ".apm", "runs", secondRun.id, "TASK.md"),
+      "utf8"
+    );
+
+    expect(secondTaskFile).toContain(`Branch: ${firstTaskState.gitBranchName}`);
+    expect(secondTaskFile).toContain(
+      `Worktree Path: ${canonicalizeTmpPath(firstTaskState.gitWorktreePath!)}`
+    );
+    expect((await runGit(sharedRepoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
+      "main"
+    );
+    expect(
+      (
+        await runGit(canonicalizeTmpPath(firstTaskState.gitWorktreePath!), [
+          "branch",
+          "--show-current",
+        ])
+      ).stdout.trim()
+    ).toBe(
+      firstTaskState.gitBranchName
+    );
+
+    await waitFor(
+      async () =>
+        (await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)).body,
+      (value) =>
+        value.currentRun === null && value.recentRuns.length >= 2,
+      4_000
+    );
+
+    const { body: secondTask } = await requestJson(currentContext, "POST", "/api/tasks", {
+      projectId: project.id,
+      title: "Implement checkout flow",
+      description: "Ship the cart to checkout experience.",
+      assignedAgentId: secondAgent.id,
+      executionTargetOverride: project.projectRoot,
+      useGitWorktree: true,
+    });
+
+    const secondTaskStart = await requestJson(
+      currentContext,
+      "POST",
+      `/api/tasks/${secondTask.id}/start`
+    );
+    expect(secondTaskStart.response.statusCode).toBe(200);
+
+    const secondTaskState = await waitFor(
+      async () =>
+        (await requestJson(currentContext!, "GET", `/api/tasks/${secondTask.id}`)).body,
+      (value) =>
+        typeof value.gitBranchName === "string" &&
+        value.gitBranchName.length > 0 &&
+        typeof value.gitWorktreePath === "string" &&
+        value.gitWorktreePath.length > 0,
+      4_000
+    );
+
+    expect(secondTaskState.gitBranchName).toContain(
+      "nova/task-002-implement-checkout-flow"
+    );
+    expect(secondTaskState.gitWorktreePath).not.toBe(firstTaskState.gitWorktreePath);
+    expect(secondTaskState.gitRepoRoot).toBe(
+      canonicalizeTmpPath(normalizeAbsolutePath(sharedRepoPath))
+    );
+    expect(await access(secondTaskState.gitWorktreePath!)).toBeUndefined();
+    expect(
+      (
+        await runGit(canonicalizeTmpPath(secondTaskState.gitWorktreePath!), [
+          "branch",
+          "--show-current",
+        ])
+      ).stdout.trim()
+    ).toBe(
+      secondTaskState.gitBranchName
+    );
+    expect(
+      (
+        await runGit(canonicalizeTmpPath(firstTaskState.gitWorktreePath!), [
+          "branch",
+          "--show-current",
+        ])
+      ).stdout.trim()
+    ).toBe(
+      firstTaskState.gitBranchName
+    );
+    expect((await runGit(sharedRepoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
+      "main"
+    );
+  });
+
+  it("keeps shared checkout branch flow when git worktree isolation is disabled", async () => {
+    const setup = await createTestContext();
+    currentContext = setup.context;
+    currentAppDataDir = setup.appDataDir;
+
+    const sharedRepoPath = join(setup.appDataDir, "shared-checkout-project");
+    await mkdir(sharedRepoPath, { recursive: true });
+    await initGitRepo(sharedRepoPath, "git@github.com:openai/shared-checkout.git");
+
+    const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
+      name: "Shared Checkout Project",
+      description: "Uses the shared checkout branch flow.",
+      projectRoot: sharedRepoPath,
       seedType: "none",
     });
     const { body: agent } = await requestJson(currentContext, "POST", "/api/agents", {
-      name: "Branch Agent",
+      name: "Shared Checkout Agent",
       role: "Implementation",
       systemInstructions: "Follow TASK.md and stay on the provided branch.",
     });
@@ -2154,75 +2389,50 @@ describe("server integration", () => {
       `/api/projects/${project.id}/agents/${agent.id}`
     );
 
-    await currentContext.services.runtimeManager
-      .getAdapter(agent.runtime.kind)
-      .ensureProjectRoot(agent.id, agent.runtime.workspacePath, project.projectRoot, {
-        type: project.seedType,
-        url: project.seedUrl,
-      });
-
-    const repoPath = join(agent.runtime.workspacePath, project.projectRoot);
-    await initGitRepo(repoPath, "git@github.com:openai/orbit-shop.git");
-
     const { body: task } = await requestJson(currentContext, "POST", "/api/tasks", {
       projectId: project.id,
-      title: "Design a landing page",
-      description: "Implement the first marketing page.",
+      title: "Implement hero banner",
+      description: "Work directly in the shared checkout.",
       assignedAgentId: agent.id,
       executionTargetOverride: project.projectRoot,
+      useGitWorktree: false,
     });
 
-    const { body: firstRun } = await requestJson(
+    const startResponse = await requestJson(
       currentContext,
       "POST",
       `/api/tasks/${task.id}/start`
     );
+    expect(startResponse.response.statusCode).toBe(200);
 
-    const firstTaskState = await waitFor(
+    const taskState = await waitFor(
       async () =>
         (await requestJson(currentContext!, "GET", `/api/tasks/${task.id}`)).body,
       (value) =>
         typeof value.gitBranchName === "string" &&
         value.gitBranchName.length > 0 &&
-        typeof value.gitBranchUrl === "string" &&
-        value.gitBranchUrl.includes("/tree/") &&
-        value.status === "in_review",
+        value.gitWorktreePath === null,
       4_000
     );
 
-    expect(firstTaskState.gitBranchName).toContain("nova/task-001-design-a-landing-page");
-    expect(firstTaskState.gitRepoRoot).toBe(repoPath);
-    expect(firstTaskState.gitBranchUrl).toContain(
-      `https://github.com/openai/orbit-shop/tree/${firstTaskState.gitBranchName}`
+    expect(taskState.useGitWorktree).toBe(false);
+    expect(taskState.gitRepoRoot).toBe(
+      canonicalizeTmpPath(normalizeAbsolutePath(sharedRepoPath))
     );
-    expect((await runGit(repoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
-      firstTaskState.gitBranchName
+    expect(canonicalizeTmpPath(taskState.resolvedExecutionTarget)).toBe(
+      canonicalizeTmpPath(normalizeAbsolutePath(sharedRepoPath))
+    );
+    expect(taskState.gitBranchName).toContain("nova/task-001-implement-hero-banner");
+    expect((await runGit(sharedRepoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
+      taskState.gitBranchName
     );
 
-    const firstTaskFile = await readFile(
-      join(agent.agentHomePath, ".apm", "runs", firstRun.id, "TASK.md"),
+    const taskFile = await readFile(
+      join(agent.agentHomePath, ".apm", "runs", startResponse.body.id, "TASK.md"),
       "utf8"
     );
-    expect(firstTaskFile).toContain(`Branch: ${firstTaskState.gitBranchName}`);
-    expect(firstTaskFile).toContain(
-      "operator wants you to open a pull request from that branch"
-    );
-
-    const { body: secondRun } = await requestJson(
-      currentContext,
-      "POST",
-      `/api/tasks/${task.id}/start`
-    );
-
-    const secondTaskFile = await readFile(
-      join(agent.agentHomePath, ".apm", "runs", secondRun.id, "TASK.md"),
-      "utf8"
-    );
-
-    expect(secondTaskFile).toContain(`Branch: ${firstTaskState.gitBranchName}`);
-    expect((await runGit(repoPath, ["branch", "--show-current"])).stdout.trim()).toBe(
-      firstTaskState.gitBranchName
-    );
+    expect(taskFile).toContain(`Branch: ${taskState.gitBranchName}`);
+    expect(taskFile).toContain("Worktree Path: None");
   });
 
   it("forwards active task comments into the runtime session and accepts agent bridge updates", async () => {
@@ -2636,10 +2846,13 @@ describe("server integration", () => {
     const setup = await createTestContext();
     currentContext = setup.context;
     currentAppDataDir = setup.appDataDir;
+    const gitProjectRoot = join(setup.appDataDir, "auto-handoff-repo");
+    await mkdir(gitProjectRoot, { recursive: true });
+    await initGitRepo(gitProjectRoot, "git@github.com:openai/auto-handoff.git");
 
     const { body: project } = await requestJson(currentContext, "POST", "/api/projects", {
       name: "Auto Handoff Project",
-      projectRoot: "projects/auto-handoff",
+      projectRoot: gitProjectRoot,
     });
     const { body: designAgent } = await requestJson(currentContext, "POST", "/api/agents", {
       name: "Design Agent",
@@ -2661,6 +2874,7 @@ describe("server integration", () => {
       title: "Auto handoff ticket",
       assignedAgentId: designAgent.id,
       handoffAgentId: reviewAgent.id,
+      useGitWorktree: true,
     });
 
     const startResponse = await requestJson(
@@ -2690,6 +2904,15 @@ describe("server integration", () => {
         (comment: { authorType: string; body: string }) =>
           comment.authorType === "system" &&
           comment.body.includes("@review-agent Review the completed work for Auto handoff ticket.")
+      )
+    ).toBe(true);
+    expect(
+      handedOffTask.comments.some(
+        (comment: { authorType: string; body: string }) =>
+          comment.authorType === "system" &&
+          comment.body.includes("Open worktree directory") &&
+          comment.body.includes("nova-open://") &&
+          comment.body.includes("Worktree path: `")
       )
     ).toBe(true);
     expect(handedOffTask.recentRuns[0].agentId).toBe(reviewAgent.id);

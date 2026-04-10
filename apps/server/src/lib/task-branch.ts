@@ -13,6 +13,17 @@ export const buildTaskBranchName = (
   return `nova/task-${String(taskNumber).padStart(3, "0")}-${titleSlug}-${taskIdPrefix}`;
 };
 
+export const buildTaskWorktreeName = (
+  taskNumber: number,
+  title: string,
+  taskId: string
+) => {
+  const titleSlug = slugify(title).slice(0, BRANCH_SLUG_MAX_LENGTH) || "task";
+  const taskIdPrefix = taskId.slice(0, 8).toLowerCase();
+
+  return `task-${String(taskNumber).padStart(3, "0")}-${titleSlug}-${taskIdPrefix}`;
+};
+
 const normalizeGithubRemote = (remoteUrl: string) => {
   const trimmed = remoteUrl.trim();
 

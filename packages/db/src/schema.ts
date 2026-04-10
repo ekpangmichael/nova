@@ -202,9 +202,13 @@ export const tasks = sqliteTable(
     }),
     executionTargetOverride: text("execution_target_override"),
     resolvedExecutionTarget: requiredText("resolved_execution_target"),
+    useGitWorktree: integer("use_git_worktree", { mode: "boolean" })
+      .notNull()
+      .default(false),
     gitRepoRoot: text("git_repo_root"),
     gitBranchName: text("git_branch_name"),
     gitBranchUrl: text("git_branch_url"),
+    gitWorktreePath: text("git_worktree_path"),
     dueAt: text("due_at"),
     estimatedMinutes: integer("estimated_minutes"),
     labelsJson: text("labels_json"),
