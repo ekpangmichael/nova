@@ -2,10 +2,23 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { parseOrThrow } from "../lib/http.js";
 
-const runtimeSchema = z.object({
-  kind: z
-    .enum(["openclaw-native", "codex", "claude-code"])
-    .default("openclaw-native"),
+const runtimeKindSchema = z.enum(["openclaw-native", "codex", "claude-code"]);
+
+const createRuntimeSchema = z.object({
+  kind: runtimeKindSchema.default("openclaw-native"),
+  runtimeAgentId: z.string().min(1).optional(),
+  workspacePath: z.string().min(1).optional(),
+  runtimeStatePath: z.string().min(1).optional(),
+  defaultModelId: z.string().min(1).nullable().optional(),
+  modelOverrideAllowed: z.boolean().optional(),
+  sandboxMode: z.enum(["off", "docker", "other"]).optional(),
+  defaultThinkingLevel: z
+    .enum(["off", "minimal", "low", "medium", "high", "xhigh"])
+    .optional(),
+});
+
+const patchRuntimeSchema = z.object({
+  kind: runtimeKindSchema.optional(),
   runtimeAgentId: z.string().min(1).optional(),
   workspacePath: z.string().min(1).optional(),
   runtimeStatePath: z.string().min(1).optional(),
@@ -29,7 +42,7 @@ const createAgentSchema = z.object({
   toolsText: z.string().nullable().optional(),
   heartbeatText: z.string().nullable().optional(),
   memoryText: z.string().nullable().optional(),
-  runtime: runtimeSchema.optional(),
+  runtime: createRuntimeSchema.optional(),
 });
 
 const importOpenClawAgentSchema = z.object({
@@ -56,7 +69,7 @@ const importOpenClawAgentSchema = z.object({
 });
 
 const patchAgentSchema = createAgentSchema.partial().extend({
-  runtime: runtimeSchema.partial().optional(),
+  runtime: patchRuntimeSchema.optional(),
   status: z.enum(["idle", "working", "paused", "error", "offline"]).optional(),
 });
 

@@ -169,3 +169,9 @@ log "Nova is ready."
 log "Next steps:"
 log "  cd $TARGET_DIR"
 log "  pnpm dev"
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  log "  pnpm build && pnpm service:macos:install"
+else
+  log "  pnpm build && pnpm start"
+fi

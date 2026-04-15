@@ -37,7 +37,7 @@ The installer does four things:
 
 ---
 
-## 2. Start Nova
+## 2. Start Nova in development
 
 Run:
 
@@ -58,7 +58,51 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000) in your browser when startup
 
 ---
 
-## 3. Manual source install
+## 3. Start Nova in production
+
+For a foreground production run on any platform:
+
+```bash
+cd nova
+pnpm build
+pnpm start
+```
+
+The production launcher:
+
+1. verifies the built server and web artifacts exist
+2. starts the Fastify API server on `http://127.0.0.1:4000`
+3. waits for `/api/health` to become ready
+4. starts the Next.js app on `http://127.0.0.1:3000`
+
+Use this when you want production behavior without installing a background service.
+
+### macOS background service
+
+On macOS, Nova can run as a LaunchAgent:
+
+```bash
+cd nova
+pnpm build
+pnpm service:macos:install
+```
+
+This writes `~/Library/LaunchAgents/ai.nova.production.plist`, starts Nova at login, and keeps it running in the background.
+
+Useful service commands:
+
+```bash
+pnpm service:macos:status
+pnpm service:macos:restart
+pnpm service:macos:stop
+pnpm service:macos:uninstall
+```
+
+Service logs are written under `.nova-data/logs/`.
+
+---
+
+## 4. Manual source install
 
 If you prefer not to use the one-line installer, the equivalent manual flow is:
 
@@ -72,7 +116,7 @@ pnpm dev
 
 ---
 
-## 4. LAN access
+## 5. LAN access
 
 If you want to open Nova from another device on the same network, use:
 
@@ -84,7 +128,7 @@ This exposes the web frontend on your LAN IP and prints the URL to open from ano
 
 ---
 
-## 5. Runtime onboarding
+## 6. Runtime onboarding
 
 Nova can run without external runtimes in mock mode, but most real agent workflows need one or more local runtimes:
 
@@ -98,7 +142,7 @@ For setup details, authentication expectations, supported models, and caveats, c
 
 ---
 
-## 6. Local data storage
+## 7. Local data storage
 
 Nova stores local state in `.nova-data/` by default, unless overridden by `NOVA_APP_DATA_DIR`.
 
@@ -125,6 +169,18 @@ That is not fatal. Nova can still boot in mock mode. You only need a runtime bin
 ### Port 3000 or 4010 is already in use
 
 The dev launcher can clean up stale Nova processes, but it will stop if a non-Nova process is holding the port. Free the port and rerun `pnpm dev`.
+
+### `pnpm start` says production artifacts are missing
+
+Run `pnpm build` first. The production launcher only works from the compiled server output and the built Next.js app.
+
+### The macOS service cannot find `openclaw`, `codex`, or `claude`
+
+The LaunchAgent captures your current shell `PATH` at install time. If your runtime binary locations changed, rerun:
+
+```bash
+pnpm service:macos:install
+```
 
 ### I need Google sign-in
 

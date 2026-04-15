@@ -547,11 +547,15 @@ function NewTaskPageContent() {
                     <span className="text-sm font-medium text-on-surface">
                       Use a separate worktree
                     </span>
-                    {useGitWorktree && (
-                      <span className="rounded-full bg-secondary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-secondary">
-                        On
-                      </span>
-                    )}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                        useGitWorktree
+                          ? "bg-secondary/10 text-secondary"
+                          : "bg-on-surface-variant/8 text-on-surface-variant/40"
+                      }`}
+                    >
+                      {useGitWorktree ? "On" : "Off"}
+                    </span>
                   </div>
                   <p className="mt-0.5 text-xs text-on-surface-variant/60">
                     {useGitWorktree

@@ -962,6 +962,76 @@ describe("server integration", () => {
     await expect(access(join(agent.runtime.workspacePath, "AGENTS.md"))).resolves.toBeUndefined();
   });
 
+  it("updates a Codex agent thinking level without treating it as a runtime switch", async () => {
+    const appDataDir = await mkdtemp(join(tmpdir(), "nova-codex-edit-"));
+    const codexStateDir = join(appDataDir, "codex-home");
+    const codexConfigPath = join(codexStateDir, "config.toml");
+    await mkdir(codexStateDir, { recursive: true });
+    await writeFile(codexConfigPath, 'model = "gpt-5.4"\n', "utf8");
+    await writeFile(
+      join(codexStateDir, "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: "test-access",
+        },
+      }),
+      "utf8"
+    );
+    const codexBinaryPath = await createMockCodexCli(appDataDir);
+
+    currentAppDataDir = appDataDir;
+    currentContext = await createApp({
+      logger: false,
+      envOverrides: {
+        NODE_ENV: "test",
+        NOVA_APP_DATA_DIR: appDataDir,
+        NOVA_RUNTIME_MODE: "mock",
+        CODEX_BINARY_PATH: codexBinaryPath,
+        CODEX_STATE_DIR: codexStateDir,
+        CODEX_CONFIG_PATH: codexConfigPath,
+      },
+    });
+
+    const authHeaders = await createAuthHeaders(currentContext, {
+      displayName: "Codex Editor",
+      email: "codex-editor@example.com",
+    });
+
+    const { body: agent } = await requestJson(
+      currentContext,
+      "POST",
+      "/api/agents",
+      {
+        name: "Codex Editor",
+        role: "Implementation",
+        runtime: {
+          kind: "codex",
+          defaultModelId: "gpt-5.4",
+          sandboxMode: "off",
+          defaultThinkingLevel: "medium",
+        },
+      },
+      authHeaders
+    );
+
+    const patchResponse = await requestJson(
+      currentContext,
+      "PATCH",
+      `/api/agents/${agent.id}`,
+      {
+        runtime: {
+          defaultThinkingLevel: "high",
+        },
+      },
+      authHeaders
+    );
+
+    expect(patchResponse.response.statusCode).toBe(200);
+    expect(patchResponse.body.runtime.kind).toBe("codex");
+    expect(patchResponse.body.runtime.defaultThinkingLevel).toBe("high");
+  });
+
   it("imports an existing OpenClaw agent into Nova", async () => {
     const setup = await createTestContext();
     currentContext = setup.context;

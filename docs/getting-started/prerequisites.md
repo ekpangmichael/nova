@@ -41,6 +41,7 @@ If none of these binaries are present, Nova falls back to its built-in **mock ru
 - **Operating system** -- macOS, Linux, or Windows (WSL recommended on Windows).
 - **Disk space** -- approximately 500 MB for `node_modules` and build artifacts.
 - **Ports** -- the dev script expects ports **4010** (API server) and **3000** (web frontend) to be free. If either port is occupied by a previous Nova process, the dev script will terminate it automatically. If the port is held by a non-Nova process, the script will exit with an error.
+- **macOS production launcher** -- if you want Nova to run as a background app on macOS, LaunchAgents must be available under `~/Library/LaunchAgents`.
 
 ---
 

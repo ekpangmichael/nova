@@ -1,55 +1,16 @@
-import { access, copyFile, mkdir, readFile } from "node:fs/promises";
-import { constants } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { copyFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { spawn } from "node:child_process";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const repoRoot = resolve(__dirname, "..");
+import {
+  ensureAppDataDir,
+  parseDotEnv,
+  pathExists,
+  repoRoot,
+} from "./lib/env.mjs";
+
 const envExamplePath = resolve(repoRoot, ".env.example");
 const envLocalPath = resolve(repoRoot, ".env.local");
-
-const parseDotEnv = (content) => {
-  const result = {};
-
-  for (const rawLine of content.split("\n")) {
-    const line = rawLine.trim();
-
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = line.indexOf("=");
-
-    if (separatorIndex <= 0) {
-      continue;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    let value = line.slice(separatorIndex + 1).trim();
-
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    result[key] = value;
-  }
-
-  return result;
-};
-
-const pathExists = async (path) => {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 const detectBinary = (binary) =>
   new Promise((resolvePromise) => {
@@ -86,16 +47,6 @@ const ensureEnvLocal = async () => {
 const loadEnvLocal = async () => {
   const envFile = await readFile(envLocalPath, "utf8");
   return parseDotEnv(envFile);
-};
-
-const ensureAppDataDir = async (env) => {
-  const configured = env.NOVA_APP_DATA_DIR?.trim();
-  const appDataDir = configured
-    ? resolve(repoRoot, configured)
-    : resolve(repoRoot, ".nova-data");
-
-  await mkdir(appDataDir, { recursive: true });
-  return appDataDir;
 };
 
 const formatBinaryStatus = (label, detectedPath) => {
@@ -135,8 +86,15 @@ const main = async () => {
   console.log("");
   console.log("Next steps");
   console.log("1. Review .env.local and adjust runtime or auth settings if needed.");
-  console.log("2. Run `pnpm dev` for local-only access or `pnpm dev:lan` for same-Wi-Fi access.");
-  console.log("3. Open http://127.0.0.1:3000 after the server reports healthy.");
+  console.log("2. Run `pnpm dev` for local development or `pnpm dev:lan` for same-Wi-Fi access.");
+
+  if (process.platform === "darwin") {
+    console.log("3. For a background macOS service, run `pnpm build && pnpm service:macos:install`.");
+  } else {
+    console.log("3. For production mode, run `pnpm build && pnpm start`.");
+  }
+
+  console.log("4. Open http://127.0.0.1:3000 after the server reports healthy.");
 };
 
 main().catch((error) => {
