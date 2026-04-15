@@ -5,7 +5,7 @@ This section covers the public install path for Nova and the runtime setup neede
 ## What you will have at the end
 
 - Nova running at [http://127.0.0.1:3000](http://127.0.0.1:3000)
-- local app data under `.nova-data/`
+- production app data under `~/.nova` by default
 - runtime detection completed for OpenClaw, Codex, and Claude Code
 - enough setup to sign in and start configuring projects, agents, and tasks
 

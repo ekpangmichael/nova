@@ -242,8 +242,7 @@ const buildProductionConfig = async ({ defaults, yes }) => {
     });
   }
 
-  const defaultAppDataDir =
-    defaults.NOVA_APP_DATA_DIR || resolve(homedir(), "Library/Application Support/Nova");
+  const defaultAppDataDir = defaults.NOVA_APP_DATA_DIR || resolve(homedir(), ".nova");
   const defaultServerPort = defaults.PORT || "4000";
   const defaultWebPort = defaults.NOVA_WEB_PORT || "3000";
   const defaultServerHost = defaults.HOST || "127.0.0.1";

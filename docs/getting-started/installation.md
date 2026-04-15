@@ -57,6 +57,8 @@ curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh 
 
 The wizard is production-focused. It collects the required environment values, writes `.env.local`, and on macOS can install the background LaunchAgent automatically.
 
+By default, the production wizard stores Nova data under `~/.nova`. You can override this during setup if you want a different location.
+
 ---
 
 ## 2. Start Nova in development
@@ -120,7 +122,7 @@ pnpm service:macos:stop
 pnpm service:macos:uninstall
 ```
 
-Service logs are written under `.nova-data/logs/`.
+If you keep the default app data path, service logs are written under `~/.nova/logs/`.
 
 ---
 
@@ -166,17 +168,22 @@ For setup details, authentication expectations, supported models, and caveats, c
 
 ## 7. Local data storage
 
-Nova stores local state in `.nova-data/` by default, unless overridden by `NOVA_APP_DATA_DIR`.
+Nova uses different defaults depending on how you start it:
+
+- development runs default to `<repo-root>/.nova-data`
+- the production installer defaults to `~/.nova`
+
+Both can be overridden with `NOVA_APP_DATA_DIR`.
 
 Typical contents:
 
 | Path | Contents |
 | ---- | -------- |
-| `.nova-data/db/app.db` | SQLite database |
-| `.nova-data/attachments/` | Task and comment attachments |
-| `.nova-data/logs/` | Local server logs |
-| `.nova-data/temp/` | Temporary files |
-| `.nova-data/agent-homes/` | Generated agent homes |
+| `<NOVA_APP_DATA_DIR>/db/app.db` | SQLite database |
+| `<NOVA_APP_DATA_DIR>/attachments/` | Task and comment attachments |
+| `<NOVA_APP_DATA_DIR>/logs/` | Local server logs |
+| `<NOVA_APP_DATA_DIR>/temp/` | Temporary files |
+| `<NOVA_APP_DATA_DIR>/agent-homes/` | Generated agent homes |
 
 This directory is local-only and git-ignored.
 

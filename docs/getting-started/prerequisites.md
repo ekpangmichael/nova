@@ -63,7 +63,7 @@ Key variables you may want to override:
 | -------- | ------- | ----------- |
 | `PORT` | `4000` | API server port (overridden to `4010` by the dev script) |
 | `NOVA_RUNTIME_MODE` | `mock` | Runtime mode: `mock` or `openclaw` |
-| `NOVA_APP_DATA_DIR` | `.nova-data/` | Base directory for the SQLite database, attachments, and logs |
+| `NOVA_APP_DATA_DIR` | dev: `.nova-data/`, production installer: `~/.nova` | Base directory for the SQLite database, attachments, and logs |
 | `OPENCLAW_PROFILE` | `apm` | OpenClaw profile name |
 | `OPENCLAW_BINARY_PATH` | `openclaw` | Path to the OpenClaw binary |
 | `CODEX_BINARY_PATH` | `codex` | Path to the Codex binary |

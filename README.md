@@ -51,6 +51,7 @@ That flow is production-oriented. It:
 - clones or reuses a Nova checkout
 - asks for the required production settings
 - writes the canonical root `.env.local`
+- stores persistent app data in `~/.nova` by default
 - can build Nova for production
 - on macOS, can install the LaunchAgent service for you
 
@@ -140,7 +141,12 @@ nova/
 
 ## Local data
 
-Nova stores everything in `.nova-data/` by default:
+Nova uses two sensible defaults depending on how you run it:
+
+- development: `<repo>/.nova-data`
+- production installer: `~/.nova`
+
+That directory holds:
 
 - SQLite database
 - Task and comment attachments

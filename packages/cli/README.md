@@ -31,6 +31,8 @@ This flow is designed for production operators, not contributors. It:
 5. builds Nova for production
 6. on macOS, can install the LaunchAgent service automatically
 
+The default production app data path is `~/.nova`.
+
 ## Usage
 
 ```bash
