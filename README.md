@@ -55,6 +55,31 @@ pnpm dev
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000) when startup completes.
 
+For a production-style foreground run:
+
+```bash
+cd nova
+pnpm build
+pnpm start
+```
+
+On macOS, you can install Nova as a background LaunchAgent:
+
+```bash
+cd nova
+pnpm build
+pnpm service:macos:install
+```
+
+Useful macOS service commands:
+
+```bash
+pnpm service:macos:status
+pnpm service:macos:restart
+pnpm service:macos:stop
+pnpm service:macos:uninstall
+```
+
 Or install manually:
 
 ```bash
@@ -83,6 +108,9 @@ See the [Runtime Setup](docs/getting-started/runtime-setup.md) guide for configu
 pnpm setup          # First-time setup
 pnpm dev            # Start Nova (API + web)
 pnpm dev:lan        # Start with LAN access
+pnpm start          # Start Nova from built production artifacts
+pnpm service:macos:install   # Install a macOS LaunchAgent
+pnpm service:macos:status    # Check the macOS service
 pnpm docs:dev       # Start the docs site
 pnpm typecheck      # Type-check all packages
 pnpm test           # Run all tests

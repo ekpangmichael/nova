@@ -9,6 +9,11 @@ Nova runs locally as two processes during development:
 
 `pnpm dev` starts both services and waits for the API to be healthy before the web app comes up.
 
+For production, Nova can also run:
+
+1. in the foreground with `pnpm start` after a build
+2. as a macOS LaunchAgent with `pnpm service:macos:install`
+
 ## What you will have at the end
 
 - Nova running at [http://127.0.0.1:3000](http://127.0.0.1:3000)
@@ -32,6 +37,15 @@ Nova runs locally as two processes during development:
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
 cd nova
 pnpm dev
+```
+
+macOS production service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
+cd nova
+pnpm build
+pnpm service:macos:install
 ```
 
 If you prefer to install from source manually:
