@@ -38,55 +38,41 @@ Most agent tooling today is either a hosted service you don't control, or a bare
 - Retry and long-run edge cases for Codex and Claude Code
 - Cross-machine usage beyond local and LAN setups
 
-## Get started
+## Use Nova
 
-Run the bootstrap script:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
-```
-
-For the guided production path:
+If you want to run Nova as an operator, use the guided installer instead of cloning the repo manually:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
 ```
 
-Then start Nova:
+That flow is production-oriented. It:
+
+- clones or reuses a Nova checkout
+- asks for the required production settings
+- writes the canonical root `.env.local`
+- can build Nova for production
+- on macOS, can install the LaunchAgent service for you
+
+If you want a direct CLI entrypoint instead of the shell wrapper:
 
 ```bash
-cd nova
-pnpm dev
+npx nova-cli@latest setup-production
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000) when startup completes.
+After setup:
 
-For a production-style foreground run:
+- foreground production run: `pnpm start`
+- macOS service status: `pnpm service:macos:status`
+- macOS service restart: `pnpm service:macos:restart`
+- macOS service stop: `pnpm service:macos:stop`
+- macOS service uninstall: `pnpm service:macos:uninstall`
 
-```bash
-cd nova
-pnpm build
-pnpm start
-```
+Open Nova at the web origin you configured during setup. By default that is [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
-On macOS, you can install Nova as a background LaunchAgent:
+## Develop Nova
 
-```bash
-cd nova
-pnpm build
-pnpm service:macos:install
-```
-
-Useful macOS service commands:
-
-```bash
-pnpm service:macos:status
-pnpm service:macos:restart
-pnpm service:macos:stop
-pnpm service:macos:uninstall
-```
-
-Or install manually:
+If you want to contribute, debug, or run Nova in local development mode, use the repo workflow:
 
 ```bash
 git clone https://github.com/ekpangmichael/nova.git
@@ -96,14 +82,18 @@ pnpm run setup
 pnpm dev
 ```
 
-For a guided production setup, use the CLI wizard instead of the dev flow:
+This starts the Fastify backend and the Next.js frontend in development mode.
 
-```bash
-npx nova-cli@latest setup-production
-```
+## Environment Configuration
 
-That command is aimed at operators. It walks through the required production settings, writes `.env.local`, and on macOS can install the LaunchAgent for you.
-The shell installer can invoke the same flow with `--production`.
+The canonical place for local configuration is root `.env.local`.
+
+Use:
+
+- `.env.example` as the template
+- `.env.local` for real machine-specific values
+
+Do not rely on `packages/.env` or `packages/.env.local` for app or runtime secrets.
 
 ## Runtimes
 
@@ -124,8 +114,8 @@ pnpm run setup      # First-time setup
 pnpm dev            # Start Nova (API + web)
 pnpm dev:lan        # Start with LAN access
 pnpm start          # Start Nova from built production artifacts
-pnpm service:macos:install   # Install a macOS LaunchAgent
-pnpm service:macos:status    # Check the macOS service
+pnpm service:macos:install  # Install a macOS LaunchAgent
+pnpm service:macos:status   # Check the macOS service
 pnpm docs:dev       # Start the docs site
 pnpm typecheck      # Type-check all packages
 pnpm test           # Run all tests
@@ -157,7 +147,7 @@ Nova stores everything in `.nova-data/` by default:
 - Agent Homes
 - Logs and temporary files
 
-Copy `.env.example` to `.env` and configure as needed. Key variables:
+Start from `.env.example` and write your real values into root `.env.local`. Key variables:
 
 | Variable | Purpose |
 | --- | --- |

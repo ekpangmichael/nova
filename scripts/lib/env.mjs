@@ -7,7 +7,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const repoRoot = resolve(__dirname, "../..");
-export const packagesDir = resolve(repoRoot, "packages");
 
 export const parseDotEnv = (content) => {
   const result = {};
@@ -55,8 +54,6 @@ export const loadDotEnvFiles = async () => {
   const candidates = [
     resolve(repoRoot, ".env"),
     resolve(repoRoot, ".env.local"),
-    resolve(packagesDir, ".env"),
-    resolve(packagesDir, ".env.local"),
   ];
 
   for (const candidatePath of candidates) {
