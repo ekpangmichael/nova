@@ -6,6 +6,12 @@ Nova's current official install path is the repo-native one-line installer.
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
 ```
 
+For the guided production path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
+```
+
 That script clones the newest tagged release when one exists, falls back to the default branch when the repository does not have release tags yet, then runs Nova's local bootstrap steps.
 
 ---
@@ -32,8 +38,24 @@ The installer does four things:
 
 1. clones Nova into `./nova` by default
 2. installs dependencies with `pnpm install`
-3. runs `pnpm setup`
+3. runs `pnpm run setup`
 4. prints the next steps for starting the app
+
+### Guided production setup
+
+If you want a guided production setup instead of the dev-oriented bootstrap, use:
+
+```bash
+npx nova-cli@latest setup-production
+```
+
+Or invoke the same wizard through the shell installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
+```
+
+The wizard is production-focused. It collects the required environment values, writes `.env.local`, and on macOS can install the background LaunchAgent automatically.
 
 ---
 
@@ -110,7 +132,7 @@ If you prefer not to use the one-line installer, the equivalent manual flow is:
 git clone https://github.com/ekpangmichael/nova.git nova
 cd nova
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 
@@ -136,7 +158,7 @@ Nova can run without external runtimes in mock mode, but most real agent workflo
 - Codex
 - Claude Code
 
-Nova will detect installed runtime binaries during `pnpm setup`, and you can finish runtime configuration from the `/runtimes` page after the app is running.
+Nova will detect installed runtime binaries during `pnpm run setup`, and you can finish runtime configuration from the `/runtimes` page after the app is running.
 
 For setup details, authentication expectations, supported models, and caveats, continue to [Runtime Setup](./runtime-setup.md).
 
@@ -162,7 +184,7 @@ This directory is local-only and git-ignored.
 
 ## Troubleshooting
 
-### `pnpm setup` says a runtime is not found
+### `pnpm run setup` says a runtime is not found
 
 That is not fatal. Nova can still boot in mock mode. You only need a runtime binary installed for the runtime you want to use.
 
@@ -188,4 +210,4 @@ Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env.local`. For local-onl
 
 ### I want to customize config first
 
-Start from [`.env.example`](../../.env.example) and edit `.env.local` after `pnpm setup`.
+Start from [`.env.example`](../../.env.example) and edit `.env.local` after `pnpm run setup`.

@@ -54,7 +54,7 @@ If you prefer to install from source manually:
 git clone https://github.com/ekpangmichael/nova.git nova
 cd nova
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 

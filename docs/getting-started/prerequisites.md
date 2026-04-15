@@ -50,7 +50,7 @@ If none of these binaries are present, Nova falls back to its built-in **mock ru
 Nova ships with a root `.env.example`. The official path is:
 
 ```bash
-pnpm setup
+pnpm run setup
 ```
 
 That bootstrap command copies `.env.example` to `.env.local` if needed. None of the variables are required for a basic local boot; sensible defaults are applied automatically.

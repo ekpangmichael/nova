@@ -46,6 +46,12 @@ Run the bootstrap script:
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
 ```
 
+For the guided production path:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
+```
+
 Then start Nova:
 
 ```bash
@@ -86,9 +92,18 @@ Or install manually:
 git clone https://github.com/ekpangmichael/nova.git
 cd nova
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
+
+For a guided production setup, use the CLI wizard instead of the dev flow:
+
+```bash
+npx nova-cli@latest setup-production
+```
+
+That command is aimed at operators. It walks through the required production settings, writes `.env.local`, and on macOS can install the LaunchAgent for you.
+The shell installer can invoke the same flow with `--production`.
 
 ## Runtimes
 
@@ -105,7 +120,7 @@ See the [Runtime Setup](docs/getting-started/runtime-setup.md) guide for configu
 ## Commands
 
 ```bash
-pnpm setup          # First-time setup
+pnpm run setup      # First-time setup
 pnpm dev            # Start Nova (API + web)
 pnpm dev:lan        # Start with LAN access
 pnpm start          # Start Nova from built production artifacts
