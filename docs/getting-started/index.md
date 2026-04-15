@@ -2,18 +2,6 @@
 
 This section covers the public install path for Nova and the runtime setup needed for real agent work.
 
-Nova runs locally as two processes during development:
-
-1. **API server** (`@nova/server`) on port `4010`
-2. **Web frontend** (`@nova/web`) on port `3000`
-
-`pnpm dev` starts both services and waits for the API to be healthy before the web app comes up.
-
-For production, Nova can also run:
-
-1. in the foreground with `pnpm start` after a build
-2. as a macOS LaunchAgent with `pnpm service:macos:install`
-
 ## What you will have at the end
 
 - Nova running at [http://127.0.0.1:3000](http://127.0.0.1:3000)
@@ -33,22 +21,13 @@ For production, Nova can also run:
 
 ## Quick start
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
-cd nova
-pnpm dev
-```
-
-macOS production service:
+If you want to use Nova, run the guided production installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash
-cd nova
-pnpm build
-pnpm service:macos:install
+curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
 ```
 
-If you prefer to install from source manually:
+If you want to contribute or run Nova in development mode, follow the development workflow instead:
 
 ```bash
 git clone https://github.com/ekpangmichael/nova.git nova

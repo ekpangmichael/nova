@@ -8,7 +8,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, "..");
 const webDir = resolve(repoRoot, "apps/web");
-const packagesDir = resolve(repoRoot, "packages");
 const webLockPath = resolve(webDir, ".next/dev/lock");
 const desiredWebPort = 3000;
 const desiredServerPort = 4010;
@@ -81,8 +80,6 @@ const loadDotEnvFiles = async () => {
   const candidates = [
     resolve(repoRoot, ".env"),
     resolve(repoRoot, ".env.local"),
-    resolve(packagesDir, ".env"),
-    resolve(packagesDir, ".env.local"),
   ];
 
   for (const candidatePath of candidates) {

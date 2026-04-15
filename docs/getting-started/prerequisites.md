@@ -55,7 +55,7 @@ pnpm run setup
 
 That bootstrap command copies `.env.example` to `.env.local` if needed. None of the variables are required for a basic local boot; sensible defaults are applied automatically.
 
-The server reads environment variables from `.env` and `.env.local` files at the repository root and inside `packages/`.
+Nova reads environment variables from the repository root `.env` and `.env.local` files. The canonical local config file is root `.env.local`.
 
 Key variables you may want to override:
 

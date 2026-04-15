@@ -12,7 +12,7 @@ For the guided production path:
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
 ```
 
-That script clones the newest tagged release when one exists, falls back to the default branch when the repository does not have release tags yet, then runs Nova's local bootstrap steps.
+That script clones the newest tagged release when one exists, falls back to the default branch when the repository does not have release tags yet, then either runs Nova's local bootstrap steps or hands off to the production setup wizard.
 
 ---
 
@@ -70,7 +70,7 @@ pnpm dev
 
 The development launcher:
 
-1. loads environment variables from `.env`, `.env.local`, and `packages/.env*`
+1. loads environment variables from the repository root `.env` and `.env.local`
 2. stops stale Nova dev processes from previous sessions
 3. starts the Fastify API server on `http://127.0.0.1:4010`
 4. waits for `/api/health` to become ready
