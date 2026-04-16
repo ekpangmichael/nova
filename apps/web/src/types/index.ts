@@ -100,10 +100,13 @@ export type TaskStatus =
   | "canceled";
 
 export type TaskAttachment = {
+  id: string;
   name: string;
   size: string;
   type: string;
   icon: string;
+  isImage: boolean;
+  contentUrl: string;
 };
 
 export type ExecutionLogItem = {

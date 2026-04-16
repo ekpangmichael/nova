@@ -483,7 +483,15 @@ export const taskDetails: Record<string, TaskDetail> = {
     gitWorktreePath: null,
     deadline: "Nov 15, 2024",
     attachments: [
-      { name: "cohort_analysis_q3.pdf", size: "1.8 MB", type: "PDF Document", icon: "description" },
+      {
+        id: "attachment-task-4012-1",
+        name: "cohort_analysis_q3.pdf",
+        size: "1.8 MB",
+        type: "PDF Document",
+        icon: "description",
+        isImage: false,
+        contentUrl: "#",
+      },
     ],
     executionLog: [
       { icon: "add_circle", title: "Task created", description: "by System Orchestrator.", timeAgo: "3 days ago" },
@@ -508,8 +516,24 @@ export const taskDetails: Record<string, TaskDetail> = {
     gitWorktreePath: null,
     deadline: "Oct 28, 2024",
     attachments: [
-      { name: "landing_wireframes_v2.fig", size: "4.2 MB", type: "Figma File", icon: "design_services" },
-      { name: "conversion_benchmark.csv", size: "312 KB", type: "Data File", icon: "data_object" },
+      {
+        id: "attachment-task-3988-1",
+        name: "landing_wireframes_v2.fig",
+        size: "4.2 MB",
+        type: "Figma File",
+        icon: "design_services",
+        isImage: false,
+        contentUrl: "#",
+      },
+      {
+        id: "attachment-task-3988-2",
+        name: "conversion_benchmark.csv",
+        size: "312 KB",
+        type: "Data File",
+        icon: "data_object",
+        isImage: false,
+        contentUrl: "#",
+      },
     ],
     executionLog: [
       { icon: "flag", title: "Priority escalated", description: "to Urgent by project lead.", timeAgo: "1 hour ago" },
@@ -536,8 +560,24 @@ export const taskDetails: Record<string, TaskDetail> = {
     gitWorktreePath: null,
     deadline: "Oct 24, 2024",
     attachments: [
-      { name: "model_weights_v3.bin", size: "128 MB", type: "Binary Model", icon: "memory" },
-      { name: "deployment_runbook.md", size: "24 KB", type: "Markdown", icon: "description" },
+      {
+        id: "attachment-task-3902-1",
+        name: "model_weights_v3.bin",
+        size: "128 MB",
+        type: "Binary Model",
+        icon: "memory",
+        isImage: false,
+        contentUrl: "#",
+      },
+      {
+        id: "attachment-task-3902-2",
+        name: "deployment_runbook.md",
+        size: "24 KB",
+        type: "Markdown",
+        icon: "description",
+        isImage: false,
+        contentUrl: "#",
+      },
     ],
     executionLog: [
       { icon: "history", title: "Sync at 64%", description: "Weight distribution across 12 edge nodes in progress.", timeAgo: "20 min ago" },
@@ -587,8 +627,24 @@ export const taskDetails: Record<string, TaskDetail> = {
     gitWorktreePath: null,
     deadline: "Oct 30, 2024",
     attachments: [
-      { name: "brand_voice_v4.2.pdf", size: "3.1 MB", type: "PDF Document", icon: "description" },
-      { name: "social_samples_marked.zip", size: "8.7 MB", type: "Archive", icon: "folder_zip" },
+      {
+        id: "attachment-task-3844-1",
+        name: "brand_voice_v4.2.pdf",
+        size: "3.1 MB",
+        type: "PDF Document",
+        icon: "description",
+        isImage: false,
+        contentUrl: "#",
+      },
+      {
+        id: "attachment-task-3844-2",
+        name: "social_samples_marked.zip",
+        size: "8.7 MB",
+        type: "Archive",
+        icon: "folder_zip",
+        isImage: false,
+        contentUrl: "#",
+      },
     ],
     executionLog: [
       { icon: "rate_review", title: "Review started", description: "12 comments added by Psi-Alpha.", timeAgo: "4 hours ago" },
@@ -614,7 +670,15 @@ export const taskDetails: Record<string, TaskDetail> = {
     gitWorktreePath: null,
     deadline: "Sep 30, 2024",
     attachments: [
-      { name: "keyword_report_sept.xlsx", size: "2.1 MB", type: "Spreadsheet", icon: "table_chart" },
+      {
+        id: "attachment-task-3810-1",
+        name: "keyword_report_sept.xlsx",
+        size: "2.1 MB",
+        type: "Spreadsheet",
+        icon: "table_chart",
+        isImage: false,
+        contentUrl: "#",
+      },
     ],
     executionLog: [
       { icon: "check_circle", title: "Task completed", description: "All deliverables reviewed and approved.", timeAgo: "2 weeks ago" },

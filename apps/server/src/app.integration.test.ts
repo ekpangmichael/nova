@@ -1977,6 +1977,14 @@ describe("server integration", () => {
       access(join(currentContext.env.attachmentsDir, attachment.relativeStoragePath))
     ).resolves.toBeUndefined();
 
+    const attachmentContentResponse = await currentContext.app.inject({
+      method: "GET",
+      url: `/api/tasks/${task.id}/attachments/${attachment.id}/content`,
+    });
+    expect(attachmentContentResponse.statusCode).toBe(200);
+    expect(attachmentContentResponse.headers["content-type"]).toContain("text/plain");
+    expect(attachmentContentResponse.body).toBe(attachmentContent);
+
     const { response: startResponse, body: run } = await requestJson(
       currentContext,
       "POST",
