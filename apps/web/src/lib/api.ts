@@ -1063,17 +1063,41 @@ export async function selectExecutionTargetDirectory() {
   return selectDirectory();
 }
 
+function buildWebsocketUrl(baseUrl: URL) {
+  const websocketUrl = new URL(baseUrl.toString());
+
+  websocketUrl.protocol = websocketUrl.protocol === "https:" ? "wss:" : "ws:";
+  websocketUrl.pathname = websocketUrl.pathname
+    .replace(/\/api\/backend\/?$/, "/")
+    .replace(/\/api\/?$/, "/");
+  websocketUrl.pathname = `${websocketUrl.pathname.replace(/\/$/, "")}/ws`;
+  websocketUrl.search = "";
+  websocketUrl.hash = "";
+
+  return websocketUrl.toString();
+}
+
 export function resolveBackendWebsocketUrl() {
   const configuredBase =
     process.env.NOVA_BACKEND_URL?.replace(/\/$/, "") ??
     "http://127.0.0.1:4010/api";
-  const backendUrl = new URL(configuredBase.replace(/\/api$/, ""));
+  const backendUrl = new URL(configuredBase);
 
   if (typeof window !== "undefined") {
+    const publicApiBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+
+    if (publicApiBase) {
+      return buildWebsocketUrl(new URL(publicApiBase, window.location.origin));
+    }
+
+    // HTTPS pages cannot open insecure or alternate-port websocket connections
+    // unless that exact secure endpoint is publicly exposed.
+    if (window.location.protocol === "https:") {
+      return buildWebsocketUrl(new URL(window.location.origin));
+    }
+
     backendUrl.hostname = window.location.hostname;
   }
 
-  backendUrl.protocol = backendUrl.protocol === "https:" ? "wss:" : "ws:";
-
-  return `${backendUrl.toString().replace(/\/$/, "")}/ws`;
+  return buildWebsocketUrl(backendUrl);
 }

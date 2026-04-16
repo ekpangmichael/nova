@@ -384,7 +384,13 @@ export function TaskDetailScreen({
 
   useEffect(() => {
     const backendWebsocketUrl = resolveBackendWebsocketUrl();
-    const socket = new WebSocket(backendWebsocketUrl);
+    let socket: WebSocket;
+
+    try {
+      socket = new WebSocket(backendWebsocketUrl);
+    } catch {
+      return;
+    }
 
     socket.onmessage = (rawEvent) => {
       let envelope: WebsocketEnvelope;
