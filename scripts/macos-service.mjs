@@ -19,6 +19,8 @@ const pnpmBin = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const launchDomain = `gui/${process.getuid()}`;
 const launchTarget = `${launchDomain}/${serviceLabel}`;
 const fallbackPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+const isCodexSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 const coercePort = (value, fallback) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -61,6 +63,19 @@ const execFileAsync = (file, args, options = {}) =>
       resolvePromise({ stdout, stderr });
     });
   });
+
+const assertBootstrapAllowed = () => {
+  if (!isCodexSandbox) {
+    return;
+  }
+
+  throw new Error(
+    [
+      "macOS LaunchAgent install/start/restart commands cannot run inside the Codex sandbox.",
+      "Run this command from a regular macOS terminal session instead.",
+    ].join("\n")
+  );
+};
 
 const runPnpmBuild = () =>
   new Promise((resolvePromise, rejectPromise) => {
@@ -119,9 +134,48 @@ const createPlist = ({ stdoutPath, stderrPath, webOrigin }) => {
 `;
 };
 
+const isServiceLoaded = async () => {
+  try {
+    await execFileAsync("launchctl", ["print", launchTarget]);
+    return true;
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error ? String(error.stderr) : "";
+    const code =
+      error && typeof error === "object" && "code" in error ? Number(error.code) : null;
+
+    if (
+      stderr.includes("Could not find service") ||
+      stderr.includes("not currently loaded") ||
+      stderr.includes("No such process") ||
+      code === 113 ||
+      code === 3
+    ) {
+      return false;
+    }
+
+    throw error;
+  }
+};
+
+const waitForServiceUnload = async (timeoutMs = 5000) => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!(await isServiceLoaded())) {
+      return;
+    }
+
+    await sleep(100);
+  }
+
+  throw new Error(`Timed out while waiting for ${serviceLabel} to unload.`);
+};
+
 const bootoutIfLoaded = async () => {
   try {
     await execFileAsync("launchctl", ["bootout", launchTarget]);
+    await waitForServiceUnload();
   } catch (error) {
     const stderr =
       error && typeof error === "object" && "stderr" in error ? String(error.stderr) : "";
@@ -146,9 +200,28 @@ const bootoutIfLoaded = async () => {
 };
 
 const bootstrapService = async () => {
-  await execFileAsync("launchctl", ["bootstrap", launchDomain, plistPath]);
-  await execFileAsync("launchctl", ["enable", launchTarget]).catch(() => undefined);
-  await execFileAsync("launchctl", ["kickstart", "-k", launchTarget]);
+  let lastError;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await execFileAsync("launchctl", ["bootstrap", launchDomain, plistPath]);
+      await execFileAsync("launchctl", ["enable", launchTarget]).catch(() => undefined);
+      await execFileAsync("launchctl", ["kickstart", "-k", launchTarget]);
+      return;
+    } catch (error) {
+      lastError = error;
+      const stderr =
+        error && typeof error === "object" && "stderr" in error ? String(error.stderr) : "";
+
+      if (!stderr.includes("Input/output error")) {
+        throw error;
+      }
+
+      await sleep(250);
+    }
+  }
+
+  throw lastError;
 };
 
 const printStatus = async () => {
@@ -170,6 +243,7 @@ const printStatus = async () => {
 };
 
 const install = async () => {
+  assertBootstrapAllowed();
   await applyLoadedEnv();
 
   const appDataDir = await ensureAppDataDir(process.env);
@@ -208,6 +282,7 @@ const install = async () => {
 };
 
 const start = async () => {
+  assertBootstrapAllowed();
   await applyLoadedEnv();
   await bootoutIfLoaded();
   await bootstrapService();
@@ -220,6 +295,7 @@ const stop = async () => {
 };
 
 const restart = async () => {
+  assertBootstrapAllowed();
   await stop();
   await start();
 };
