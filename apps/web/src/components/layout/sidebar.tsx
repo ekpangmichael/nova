@@ -97,7 +97,7 @@ export function Sidebar({ sessionUser }: SidebarProps) {
       tourId: "nav-agents",
     },
     {
-      href: primaryBoardProject ? `/projects/${primaryBoardProject.id}/board` : "/projects",
+      href: primaryBoardProject ? `/projects/${primaryBoardProject.id}/board` : "/tasks",
       icon: "view_kanban",
       label: "Tasks",
       match: "tasks",
