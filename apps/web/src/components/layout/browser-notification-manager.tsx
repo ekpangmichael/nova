@@ -118,7 +118,13 @@ export function BrowserNotificationManager() {
       return;
     }
 
-    const socket = new WebSocket(resolveBackendWebsocketUrl());
+    let socket: WebSocket;
+
+    try {
+      socket = new WebSocket(resolveBackendWebsocketUrl());
+    } catch {
+      return;
+    }
 
     socket.onmessage = (rawEvent) => {
       let envelope: WebsocketEnvelope;
