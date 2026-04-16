@@ -1015,6 +1015,10 @@ export function getTaskCommentAttachmentContentUrl(
   );
 }
 
+export function getTaskAttachmentContentUrl(taskId: string, attachmentId: string) {
+  return buildApiUrl(`/tasks/${taskId}/attachments/${attachmentId}/content`);
+}
+
 export async function startTask(taskId: string) {
   return requestJson<ApiTaskRun>(`/tasks/${taskId}/start`, {
     method: "POST",

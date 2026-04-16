@@ -2380,6 +2380,28 @@ export class NovaService {
     return attachment;
   }
 
+  async getTaskAttachmentContent(taskId: string, attachmentId: string) {
+    await this.#getTaskRow(taskId);
+    const row = await this.#db
+      .select()
+      .from(taskAttachments)
+      .where(eq(taskAttachments.id, attachmentId))
+      .get();
+
+    if (!row || row.taskId !== taskId) {
+      throw notFound("Task attachment was not found.");
+    }
+
+    const absolutePath = `${this.#env.attachmentsDir}/${row.relativeStoragePath}`;
+    const buffer = await readFile(absolutePath);
+
+    return {
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      buffer,
+    };
+  }
+
   async #getTaskCommentById(commentId: string) {
     const row = await this.#db
       .select()

@@ -18,6 +18,7 @@ import {
   ApiError,
   type ApiAgent,
   type ApiRunEvent,
+  getTaskAttachmentContentUrl,
   getTaskCommentAttachmentContentUrl,
   type ApiTaskComment,
   type ApiTaskDetail,
@@ -120,10 +121,13 @@ function getAttachmentIcon(mimeType: string) {
 
 function buildTaskAttachments(task: ApiTaskDetail): TaskAttachment[] {
   return task.attachments.map((attachment) => ({
+    id: attachment.id,
     name: attachment.fileName,
     size: formatFileSize(attachment.sizeBytes),
     type: attachment.mimeType,
     icon: getAttachmentIcon(attachment.mimeType),
+    isImage: attachment.mimeType.startsWith("image/"),
+    contentUrl: getTaskAttachmentContentUrl(task.id, attachment.id),
   }));
 }
 

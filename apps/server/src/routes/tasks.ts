@@ -187,6 +187,28 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  app.get(
+    "/tasks/:taskId/attachments/:attachmentId/content",
+    async (request, reply) => {
+      const attachmentParams = parseOrThrow(
+        z.object({
+          taskId: z.string().uuid(),
+          attachmentId: z.string().uuid(),
+        }),
+        request.params
+      );
+
+      const file = await app.services.nova.getTaskAttachmentContent(
+        attachmentParams.taskId,
+        attachmentParams.attachmentId
+      );
+
+      reply.header("Content-Type", file.mimeType);
+      reply.header("Content-Disposition", `inline; filename=\"${file.fileName}\"`);
+      return reply.send(file.buffer);
+    }
+  );
+
   app.post("/tasks/:taskId/start", async (request) => {
     const { taskId } = parseOrThrow(paramsSchema, request.params);
     return app.services.nova.startTask(taskId);
