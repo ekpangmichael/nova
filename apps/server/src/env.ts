@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { DEFAULT_TELEMETRY_ENDPOINT } from "./services/TelemetryService.js";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -269,6 +270,11 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => value === "1" || value === "true"),
+  NOVA_TELEMETRY: z
+    .string()
+    .optional()
+    .transform((value) => value !== "0" && value !== "false"),
+  NOVA_TELEMETRY_ENDPOINT: z.string().optional(),
 });
 
 export type AppEnv = ReturnType<typeof loadEnv>;
@@ -337,5 +343,10 @@ export const loadEnv = (overrides: Partial<NodeJS.ProcessEnv> = {}) => {
     claudeStateDir,
     claudeDefaultModel: detectedClaudeDefaultModel,
     enableOpenClawSmoke: parsed.NOVA_ENABLE_OPENCLAW_SMOKE,
+    telemetryEnabled: parsed.NOVA_TELEMETRY,
+    telemetryEndpoint:
+      parsed.NOVA_TELEMETRY_ENDPOINT?.trim() ||
+      DEFAULT_TELEMETRY_ENDPOINT ||
+      null,
   };
 };

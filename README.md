@@ -1,79 +1,193 @@
 # Nova
 
-Nova is a local-first platform for managing coding agents. It gives you a single dashboard to create projects, assign tasks, run agents on different runtimes, and track everything that happens — without sending your data anywhere.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/nova-logo-white.svg">
+    <img src=".github/assets/nova-logo.svg" width="260" alt="Nova logo">
+  </picture>
+</p>
 
-Instead of jumping between separate CLIs and scattered notes, Nova puts your projects, tasks, agent configurations, execution logs, and follow-up comments in one place, all stored locally on your machine.
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-111827?style=for-the-badge" alt="macOS Linux Windows" />
+  <img src="https://img.shields.io/badge/runs-locally-16a34a?style=for-the-badge" alt="Runs locally" />
+  <img src="https://img.shields.io/badge/license-MIT-2563eb?style=for-the-badge" alt="MIT license" />
+</p>
 
-## Why Nova
+### The coordination layer for agentic work.
 
-Most agent tooling today is either a hosted service you don't control, or a bare CLI with no memory between sessions. Nova sits in between: a proper management layer that stays local.
+Nova is an open source project management platform for AI coding agents. Create agents, assign tasks, and have agents from different runtimes like OpenClaw, Codex, and Claude Code collaborate on the same project.
 
-- **One interface for multiple runtimes.** Use OpenClaw, Codex, or Claude Code from the same task board. Switch runtimes per agent without changing your workflow.
-- **Persistent context.** Projects, tasks, comments, attachments, and execution history survive across sessions. When something fails, you can see exactly what happened and why.
-- **Local by default.** SQLite database, file attachments, and agent configurations all live on your machine. No accounts, no cloud dependencies, no data leaving your network.
+<!-- Replace with a product demo video -->
+<!-- https://github.com/user/nova/assets/xxxx/video.mp4 -->
 
-## Who it's for
+---
 
-- Developers using AI coding agents who want structure around their work
-- Small teams running agents on trusted machines who need shared visibility
-- Anyone tired of managing agent context across disconnected tools
+## What is Nova?
 
-## What works today
+Nova is an agentic project management platform built for a world where agents are scattered across different runtimes like OpenClaw, Codex, and Claude Code. Today, there is no simple way to manage these agents in one place, easily track what they are working on, or enable collaboration across runtimes.
 
-- Web dashboard for projects, agents, tasks, runtimes, and settings
-- Task execution through OpenClaw, Codex CLI, and Claude Code CLI
-- Kanban boards with drag-and-drop, priorities, labels, and due dates
-- Task comments with `@agent` mentions for follow-up and handoff
-- File attachments on tasks and comments
-- Agent Homes with synced files like `AGENTS.md`, `SOUL.md`, and `IDENTITY.md`
-- Structured execution logs with streaming output, tool calls, and failure reasons
-- Browser notifications for run completions, failures, and blocked tasks
-- Local auth with email/password or Google sign-in
-- LAN mode for accessing Nova from another device on your network
+Nova solves that. It gives you a central place to create and manage agents across multiple runtimes, assign tasks to them, track their progress, and see what each agent is working on in real time. More importantly, Nova enables collaboration between agents even when they come from different ecosystems. A Codex agent can work together with a Claude Code agent or an OpenClaw agent on the same project.
 
-## What's still evolving
+Nova also works with your existing Codex or Claude Code subscription, including your existing setup and workflows, so you do not need to rebuild your stack from scratch just to coordinate agent work.
 
-- First-run packaging and `npm`-native install path
-- Runtime ergonomics outside the core OpenClaw path
-- Retry and long-run edge cases for Codex and Claude Code
-- Cross-machine usage beyond local and LAN setups
+**Nova runs locally on your machine.** Your projects, tasks, attachments, and agent history stay on your computer. No accounts, no cloud dependencies, no data leaving your network.
 
-## Use Nova
+In short, Nova goes beyond traditional project management. It is the coordination layer for agentic work, making it easier for humans and agents to work together across fragmented runtime environments.
 
-If you want to run Nova as an operator, use the guided installer instead of cloning the repo manually:
+---
+
+# Core Features
+
+## One place for projects and tasks
+
+Create and manage multiple projects. Each project has its own kanban board, backlog, agents, and execution target. Assign tasks with priorities, due dates, labels, and attachments. Everything a real project board needs, without leaving your machine.
+
+<p>
+  <img src="./docs/assets/feature-projects.gif" width="650" alt="Nova project board demo">
+</p>
+
+## Create agents across any runtime
+
+Spin up a new agent in seconds. Pick the runtime (OpenClaw, Codex, or Claude Code), give it a role and identity, and Nova handles the workspace, config files, and runtime wiring for you.
+
+<p>
+  <img src="./docs/assets/feature-create-agent.gif" width="650" alt="Nova create agent demo">
+</p>
+
+## Import your existing OpenClaw agents
+
+Already have OpenClaw agents set up? Import them directly into Nova. They keep their existing Agent Home, identity, and configuration. Nova just gives them a place to work from and tasks to pick up.
+
+<p>
+  <img src="./docs/assets/feature-import-openclaw.gif" width="650" alt="Nova import OpenClaw agents demo">
+</p>
+
+## Automatic handoffs between agents
+
+Chain agents together. When one agent finishes a task, the next one automatically picks it up. A developer agent ships the code, a reviewer agent reviews it, a QA agent tests it. No copy and paste, no context switching, no manual handoff.
+
+<p>
+  <img src="./docs/assets/feature-handoffs.gif" width="650" alt="Nova agent handoff demo">
+</p>
+
+## Cross runtime agent collaboration
+
+Your Codex agent can work alongside a Claude Code agent and an OpenClaw agent on the same project. Agents can `@mention` each other in comments, hand work off, and respond to each other, all from within Nova.
+
+<p>
+  <img src="./docs/assets/feature-collaboration.gif" width="650" alt="Nova cross-runtime collaboration demo">
+</p>
+
+## Live streaming of what the agent is thinking
+
+Watch an agent work in real time. Nova streams assistant replies, tool calls, file edits, and thinking deltas as they happen, so you always know what the agent is doing and why.
+
+<p>
+  <img src="./docs/assets/feature-live-stream.gif" width="650" alt="Nova live streaming demo">
+</p>
+
+---
+
+# All Features
+
+### Projects
+
+* Multiple projects, each with its own board, backlog, and settings
+* Project level agents, execution targets, and task policies
+* Dashboard view showing activity, working runs, and items that need attention
+
+### Tasks
+
+* Kanban board with drag and drop, priorities, labels, and due dates
+* Task descriptions, technical notes, and file attachments (PDF, code, images, docs)
+* Task dependencies to block a task until prerequisites finish
+* Review workflow so tasks can move into "in review" before being marked done
+* Optional Git worktree isolation per task to work on a separate checkout
+* `@agent` mentions in task comments for follow ups and handoffs
+
+### Agents
+
+* Create agents on OpenClaw, Codex, or Claude Code
+* Import existing OpenClaw agents without re configuring them
+* Per agent roles, identity, and Agent Home files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`)
+* Configurable thinking or reasoning effort (off, minimal, low, medium, high, xhigh) where the runtime supports it
+* Agent fleet view with live status (idle, working, paused, error, offline)
+* Automatic handoffs between agents on task completion
+* Cross runtime collaboration through task comments and mentions
+
+### Runtimes
+
+* OpenClaw (local CLI and gateway)
+* Codex CLI, which works with your ChatGPT login
+* Claude Code CLI, which works with your Anthropic login
+* Uses your existing runtime subscriptions, setup, and workflows
+
+### Execution and Monitoring
+
+* Live streaming of assistant replies, tool calls, and file edits as they happen
+* Structured execution logs with timestamps, tool results, and failure reasons
+* Automatic capture of run artifacts (files the agent created or modified)
+* Browser notifications for run completions, failures, and blocked tasks
+* Stop, retry, and reassign in progress runs
+
+### Local and Private
+
+* Runs entirely on your machine. No cloud service, no account required
+* SQLite database, attachments, and Agent Homes all stored locally
+* LAN mode to access Nova from another device on your network
+* Local auth with email and password, or optional Google sign in
+
+---
+
+# Screenshots
+
+<p align="center">
+  <img src="./docs/assets/screenshot-dashboard.png" width="800" alt="Nova dashboard screenshot">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshot-board.png" width="800" alt="Nova kanban board screenshot">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshot-task-detail.png" width="800" alt="Nova task detail screenshot">
+</p>
+
+---
+
+# Installation
+
+Nova runs locally on your machine. There are two paths, depending on what you want.
+
+## Run Nova (recommended)
+
+The guided installer is the fastest way to get Nova running. It writes your `.env.local`, picks sensible defaults for data storage (`~/.nova`), and can optionally install a macOS LaunchAgent so Nova starts when you log in.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
 ```
 
-That flow is production-oriented. It:
-
-- clones or reuses a Nova checkout
-- asks for the required production settings
-- writes the canonical root `.env.local`
-- stores persistent app data in `~/.nova` by default
-- can build Nova for production
-- on macOS, can install the LaunchAgent service for you
-
-If you want a direct CLI entrypoint instead of the shell wrapper:
+Or if you prefer the CLI entrypoint directly (**coming soon**):
 
 ```bash
 npx nova-cli@latest setup-production
 ```
 
-After setup:
+After setup, open Nova at [http://127.0.0.1:3000](http://127.0.0.1:3000) (or whatever origin you picked during setup).
 
-- foreground production run: `pnpm start`
-- macOS service status: `pnpm service:macos:status`
-- macOS service restart: `pnpm service:macos:restart`
-- macOS service stop: `pnpm service:macos:stop`
-- macOS service uninstall: `pnpm service:macos:uninstall`
+Common commands after install:
 
-Open Nova at the web origin you configured during setup. By default that is [http://127.0.0.1:3000](http://127.0.0.1:3000).
+```bash
+pnpm start                     # Run Nova in the foreground
+pnpm service:macos:status      # Check the macOS service
+pnpm service:macos:restart     # Restart the macOS service
+pnpm service:macos:stop        # Stop the macOS service
+pnpm service:macos:uninstall   # Remove the macOS service
+```
 
-## Develop Nova
+## Build from source
 
-If you want to contribute, debug, or run Nova in local development mode, use the repo workflow:
+If you want to contribute, debug, or customize Nova:
 
 ```bash
 git clone https://github.com/ekpangmichael/nova.git
@@ -83,47 +197,46 @@ pnpm run setup
 pnpm dev
 ```
 
-This starts the Fastify backend and the Next.js frontend in development mode.
+This starts the Fastify backend and the Next.js frontend in development mode. Open [http://localhost:3000](http://localhost:3000).
 
-## Environment Configuration
+---
 
-The canonical place for local configuration is root `.env.local`.
+# Requirements
 
-Use:
+| Requirement | Notes |
+|---|---|
+| **Node.js** | 22 or newer |
+| **pnpm** | 9 or newer |
+| **OS** | macOS 13+, Linux, or WSL on Windows |
+| **A runtime** | At least one of OpenClaw, Codex CLI, or Claude Code CLI installed locally |
 
-- `.env.example` as the template
-- `.env.local` for real machine-specific values
+See the [Runtime Setup guide](docs/getting-started/runtime-setup.md) for installing and connecting each runtime.
 
-Do not rely on `packages/.env` or `packages/.env.local` for app or runtime secrets.
+---
 
-## Runtimes
+# Configuration
 
-Nova connects to three runtimes today. Each uses its own local CLI and authentication:
+Nova's canonical config file is root `.env.local`. Start from `.env.example` and fill in real values.
 
-| Runtime | Connection | Auth | Models |
-| --- | --- | --- | --- |
-| OpenClaw | Local CLI + gateway | OpenClaw profile | From your local install |
-| Codex | Codex CLI | ChatGPT login | Curated model list |
-| Claude Code | Claude Code CLI | Anthropic login | Curated model list |
+| Variable | Purpose |
+|---|---|
+| `NOVA_RUNTIME_MODE` | `live` (use real runtimes) or `mock` (development) |
+| `NOVA_APP_DATA_DIR` | Where SQLite, attachments, and Agent Homes live |
+| `OPENCLAW_*` | OpenClaw CLI and gateway config |
+| `CODEX_*` | Codex CLI config |
+| `CLAUDE_*` | Claude Code CLI config |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional Google OAuth sign in |
 
-See the [Runtime Setup](docs/getting-started/runtime-setup.md) guide for configuration details.
+Nova stores local data in:
 
-## Commands
+* **development:** `<repo>/.nova-data`
+* **production installer:** `~/.nova`
 
-```bash
-pnpm run setup      # First-time setup
-pnpm dev            # Start Nova (API + web)
-pnpm dev:lan        # Start with LAN access
-pnpm start          # Start Nova from built production artifacts
-pnpm service:macos:install  # Install a macOS LaunchAgent
-pnpm service:macos:status   # Check the macOS service
-pnpm docs:dev       # Start the docs site
-pnpm typecheck      # Type-check all packages
-pnpm test           # Run all tests
-pnpm build          # Production build
-```
+That directory holds the SQLite database, task and comment attachments, Agent Homes, and logs.
 
-## Project structure
+---
+
+# Project Structure
 
 ```
 nova/
@@ -135,43 +248,37 @@ nova/
     db/              Drizzle ORM schema (SQLite)
     runtime-adapter/ Runtime adapter interface
     ui/              Shared component library
-    cli/             CLI package (in progress)
+    cli/             CLI package
   docs/              Project documentation (VitePress)
 ```
 
-## Local data
+---
 
-Nova uses two sensible defaults depending on how you run it:
+# Documentation
 
-- development: `<repo>/.nova-data`
-- production installer: `~/.nova`
-
-That directory holds:
-
-- SQLite database
-- Task and comment attachments
-- Agent Homes
-- Logs and temporary files
-
-Start from `.env.example` and write your real values into root `.env.local`. Key variables:
-
-| Variable | Purpose |
-| --- | --- |
-| `NOVA_RUNTIME_MODE` | Runtime mode (`live` or `mock`) |
-| `NOVA_APP_DATA_DIR` | Data directory path |
-| `OPENCLAW_*` | OpenClaw CLI and gateway config |
-| `CODEX_*` | Codex CLI config |
-| `CLAUDE_*` | Claude Code CLI config |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth (optional) |
-
-## Documentation
-
-Full docs are available at the [docs site](docs/index.md) or by running:
+Full docs live in [`docs/`](docs/index.md), or run the docs site locally:
 
 ```bash
 pnpm docs:dev
 ```
 
-## License
+---
+
+# Useful Commands
+
+```bash
+pnpm run setup           # First-time setup
+pnpm dev                 # Start Nova (API + web)
+pnpm dev:lan             # Start with LAN access
+pnpm start               # Start from production build
+pnpm build               # Production build
+pnpm typecheck           # Type-check all packages
+pnpm test                # Run all tests
+pnpm docs:dev            # Start the docs site
+```
+
+---
+
+# License
 
 MIT

@@ -17,6 +17,12 @@ export const metadata: Metadata = {
   title: "Nova | Agent Management Platform",
   description:
     "Manage projects, configure AI agents, assign tasks, and monitor execution in real time.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+  },
 };
 
 export default function RootLayout({
