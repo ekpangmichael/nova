@@ -13,6 +13,12 @@
   <img src="https://img.shields.io/badge/license-MIT-2563eb?style=for-the-badge" alt="MIT license" />
 </p>
 
+<p align="center">
+  <a href="https://ekpangmichael.github.io/nova/"><strong>Documentation</strong></a> ·
+  <a href="https://ekpangmichael.github.io/nova/getting-started/">Get started</a> ·
+  <a href="https://ekpangmichael.github.io/nova/getting-started/runtime-setup">Runtime setup</a>
+</p>
+
 ### The coordination layer for agentic work.
 
 Nova is an open source project management platform for AI coding agents. Create agents, assign tasks, and have agents from different runtimes like OpenClaw, Codex, and Claude Code collaborate on the same project.
@@ -210,7 +216,7 @@ This starts the Fastify backend and the Next.js frontend in development mode. Op
 | **OS** | macOS 13+, Linux, or WSL on Windows |
 | **A runtime** | At least one of OpenClaw, Codex CLI, or Claude Code CLI installed locally |
 
-See the [Runtime Setup guide](docs/getting-started/runtime-setup.md) for installing and connecting each runtime.
+See the [Runtime Setup guide](https://ekpangmichael.github.io/nova/getting-started/runtime-setup) for installing and connecting each runtime.
 
 ---
 
@@ -256,7 +262,7 @@ nova/
 
 # Documentation
 
-Full docs live in [`docs/`](docs/index.md), or run the docs site locally:
+Full docs are published at **[ekpangmichael.github.io/nova](https://ekpangmichael.github.io/nova/)**. The source lives in [`docs/`](docs/index.md), or run the docs site locally:
 
 ```bash
 pnpm docs:dev

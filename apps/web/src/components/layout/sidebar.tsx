@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { NovaBrand } from "@/components/ui/nova-logo";
+import { useMobileNav } from "@/components/layout/mobile-nav-context";
+import { cn } from "@/lib/utils";
 import { signOut } from "@/lib/auth-client";
 import {
   getStoredBoardProjectId,
@@ -36,6 +38,7 @@ type SidebarProps = {
 
 export function Sidebar({ sessionUser }: SidebarProps) {
   const router = useRouter();
+  const { isOpen: isMobileNavOpen, close: closeMobileNav } = useMobileNav();
   const [projects, setProjects] = useState<ApiProjectSummary[]>([]);
   const [agents, setAgents] = useState<ApiAgent[]>([]);
   const [isSigningOut, setIsSigningOut] = useState(false);
@@ -128,11 +131,39 @@ export function Sidebar({ sessionUser }: SidebarProps) {
   };
 
   return (
-    <aside data-tour-id="sidebar" className="fixed left-0 top-0 h-screen w-64 bg-surface-container-low flex flex-col z-40 ghost-r">
-      {/* Brand */}
-      <div className="px-6 pt-7 pb-5">
-        <NovaBrand />
-      </div>
+    <>
+      {/* Backdrop (mobile only, visible when drawer is open) */}
+      <button
+        type="button"
+        aria-label="Close navigation"
+        onClick={closeMobileNav}
+        className={cn(
+          "fixed inset-0 z-30 bg-on-surface/30 backdrop-blur-sm transition-opacity md:hidden",
+          isMobileNavOpen
+            ? "opacity-100 pointer-events-auto"
+            : "opacity-0 pointer-events-none"
+        )}
+      />
+
+      <aside
+        data-tour-id="sidebar"
+        className={cn(
+          "fixed left-0 top-0 h-[100dvh] w-[min(80vw,18rem)] md:w-64 bg-surface-container-low flex flex-col z-40 ghost-r transition-transform duration-200",
+          isMobileNavOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+      >
+        {/* Brand row with mobile close button */}
+        <div className="flex items-center justify-between px-6 pt-7 pb-5">
+          <NovaBrand />
+          <button
+            type="button"
+            onClick={closeMobileNav}
+            className="md:hidden flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/50 hover:text-on-surface hover:bg-surface-container/60 transition-colors"
+            aria-label="Close navigation"
+          >
+            <Icon name="close" size={18} />
+          </button>
+        </div>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 space-y-6">
@@ -173,7 +204,8 @@ export function Sidebar({ sessionUser }: SidebarProps) {
           </button>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

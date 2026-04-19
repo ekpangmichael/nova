@@ -1,0 +1,473 @@
+/*
+ * Nova docs theme — overrides VitePress defaults to match the Nova
+ * brand (cream + ink, warm off-whites, subtle borders, precise mono).
+ *
+ * Palette comes from the Nova Logo Variations identity kit:
+ *   #f5f3ee  cream (primary background)
+ *   #fafaf7  page surface
+ *   #e3e1d8  border
+ *   #0b0b0b  ink (pure text)
+ *   #111111  mark
+ *   #4a4a46  secondary text
+ *   #7a7a73  muted text
+ *   #2563eb  action blue
+ */
+
+:root {
+  /* ------- Fonts ------- */
+  --vp-font-family-base: "Inter", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --vp-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular,
+    "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* ------- Brand ------- */
+  --vp-c-brand-1: #0f172a;
+  --vp-c-brand-2: #1e293b;
+  --vp-c-brand-3: #334155;
+  --vp-c-brand-soft: rgba(37, 99, 235, 0.12);
+
+  --vp-c-default-1: #fafaf7;
+  --vp-c-default-2: #f5f3ee;
+  --vp-c-default-3: #efeadf;
+  --vp-c-default-soft: rgba(122, 122, 115, 0.1);
+
+  /* ------- Surfaces ------- */
+  --vp-c-bg: #fafaf7;
+  --vp-c-bg-alt: #f5f3ee;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f0eee7;
+
+  /* ------- Borders ------- */
+  --vp-c-divider: #e3e1d8;
+  --vp-c-gutter: #e3e1d8;
+  --vp-c-border: #d8d5c9;
+
+  /* ------- Text ------- */
+  --vp-c-text-1: #0b0b0b;
+  --vp-c-text-2: #4a4a46;
+  --vp-c-text-3: #7a7a73;
+
+  /* ------- Buttons & CTAs ------- */
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #fafaf7;
+  --vp-button-brand-bg: #111111;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: #0b0b0b;
+  --vp-button-brand-active-bg: #000000;
+
+  --vp-button-alt-border: #d8d5c9;
+  --vp-button-alt-text: #111111;
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-hover-border: #111111;
+  --vp-button-alt-hover-text: #111111;
+  --vp-button-alt-hover-bg: #f5f3ee;
+
+  /* ------- Home hero ------- */
+  --vp-home-hero-name-color: #0b0b0b;
+  --vp-home-hero-name-background: none;
+
+  /* ------- Code blocks ------- */
+  --vp-code-block-bg: #0e0e0e;
+  --vp-code-block-color: #e5e4df;
+  --vp-code-line-highlight-color: rgba(255, 255, 255, 0.06);
+
+  /* ------- Inline code ------- */
+  --vp-c-text-code: #0f172a;
+}
+
+/* Dark mode palette */
+.dark {
+  --vp-c-bg: #0b0b0b;
+  --vp-c-bg-alt: #111111;
+  --vp-c-bg-elv: #1a1a18;
+  --vp-c-bg-soft: #161614;
+
+  --vp-c-divider: rgba(255, 255, 255, 0.08);
+  --vp-c-gutter: rgba(255, 255, 255, 0.08);
+  --vp-c-border: rgba(255, 255, 255, 0.12);
+
+  --vp-c-text-1: #f5f3ee;
+  --vp-c-text-2: #c8c6be;
+  --vp-c-text-3: #8a8882;
+
+  --vp-c-brand-1: #fafaf7;
+  --vp-c-brand-2: #e3e1d8;
+  --vp-c-brand-3: #c8c6be;
+  --vp-c-brand-soft: rgba(255, 255, 255, 0.08);
+
+  --vp-button-brand-text: #0b0b0b;
+  --vp-button-brand-bg: #f5f3ee;
+  --vp-button-brand-hover-text: #0b0b0b;
+  --vp-button-brand-hover-bg: #ffffff;
+
+  --vp-button-alt-border: rgba(255, 255, 255, 0.15);
+  --vp-button-alt-text: #f5f3ee;
+  --vp-button-alt-hover-border: #f5f3ee;
+  --vp-button-alt-hover-bg: rgba(255, 255, 255, 0.04);
+
+  --vp-home-hero-name-color: #f5f3ee;
+
+  --vp-code-block-bg: #0f0f0f;
+}
+
+/* ============================================================
+ * Global typography + layout polish
+ * ============================================================ */
+
+body {
+  font-feature-settings: "ss01", "cv02", "cv03", "cv04", "cv11";
+  letter-spacing: -0.005em;
+}
+
+.VPDoc h1,
+.VPDoc h2,
+.VPDoc h3,
+.VPDoc h4 {
+  letter-spacing: -0.02em;
+}
+
+.VPDoc h1 {
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+.VPDoc h2 {
+  border-top: 1px solid var(--vp-c-divider);
+  padding-top: 32px;
+  margin-top: 48px;
+  font-weight: 600;
+}
+
+.VPDoc a {
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+/* Smaller, calmer mono inline code */
+.VPDoc p code,
+.VPDoc li code,
+.VPDoc td code {
+  font-size: 0.85em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* ============================================================
+ * Navbar polish
+ * ============================================================ */
+
+.VPNav {
+  backdrop-filter: saturate(1.2) blur(12px);
+  -webkit-backdrop-filter: saturate(1.2) blur(12px);
+}
+
+.VPNavBar {
+  background: color-mix(in oklab, var(--vp-c-bg) 80%, transparent);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.VPNavBar.has-sidebar .curtain,
+.VPNavBar.has-sidebar .content {
+  background: transparent;
+}
+
+.VPNavBarTitle .title {
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  font-size: 17px;
+}
+
+/* Use the Nova mark at a crisp size in the navbar */
+.VPImage.logo {
+  height: 22px !important;
+  width: 22px !important;
+}
+
+.VPNavBarMenuLink {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+}
+
+.VPNavBarMenuLink:hover {
+  color: var(--vp-c-text-1);
+}
+
+/* ============================================================
+ * Sidebar polish
+ * ============================================================ */
+
+.VPSidebar {
+  background: var(--vp-c-bg-alt) !important;
+  padding-top: 24px !important;
+}
+
+.VPSidebarItem .text {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+.VPSidebarItem.level-0 > .item > .text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-3);
+}
+
+.VPSidebarItem.is-active > .item > .link > .text {
+  color: var(--vp-c-text-1);
+  font-weight: 600;
+}
+
+/* ============================================================
+ * HOME HERO
+ * ============================================================ */
+
+.VPHome {
+  padding-bottom: 64px;
+}
+
+.VPHero {
+  padding: 96px 24px 72px !important;
+}
+
+@media (min-width: 960px) {
+  .VPHero {
+    padding: 128px 48px 96px !important;
+  }
+}
+
+.VPHero .container {
+  max-width: 1152px !important;
+  margin: 0 auto;
+}
+
+.VPHero .name {
+  font-size: 72px !important;
+  line-height: 1.02 !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.045em !important;
+}
+
+@media (max-width: 640px) {
+  .VPHero .name {
+    font-size: 52px !important;
+  }
+}
+
+.VPHero .text {
+  font-size: 32px !important;
+  line-height: 1.15 !important;
+  font-weight: 600 !important;
+  color: var(--vp-c-text-1) !important;
+  letter-spacing: -0.025em !important;
+  margin-top: 8px !important;
+}
+
+@media (max-width: 640px) {
+  .VPHero .text {
+    font-size: 24px !important;
+  }
+}
+
+.VPHero .tagline {
+  color: var(--vp-c-text-2) !important;
+  font-size: 17px !important;
+  line-height: 1.6 !important;
+  margin-top: 16px !important;
+  max-width: 640px !important;
+}
+
+.VPHero .actions {
+  margin-top: 32px !important;
+}
+
+.VPButton.brand {
+  padding: 0 22px !important;
+  line-height: 42px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.005em !important;
+  border-radius: 8px !important;
+}
+
+.VPButton.alt {
+  padding: 0 22px !important;
+  line-height: 42px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.005em !important;
+  border-radius: 8px !important;
+}
+
+/* Hero image: Nova star with subtle glow */
+.VPHero .image {
+  justify-self: center;
+}
+
+.VPHero .image-container {
+  width: 280px !important;
+  height: 280px !important;
+  background: none !important;
+  transform: none !important;
+}
+
+.VPHero .image-bg {
+  width: 320px !important;
+  height: 320px !important;
+  background: radial-gradient(
+    closest-side,
+    rgba(17, 17, 17, 0.06),
+    transparent 75%
+  ) !important;
+  filter: none !important;
+}
+
+.dark .VPHero .image-bg {
+  background: radial-gradient(
+    closest-side,
+    rgba(245, 243, 238, 0.08),
+    transparent 75%
+  ) !important;
+}
+
+.VPHero .image-src {
+  width: 180px !important;
+  height: 180px !important;
+  max-width: 180px !important;
+  max-height: 180px !important;
+}
+
+/* ============================================================
+ * HOME FEATURES
+ * ============================================================ */
+
+.VPFeatures {
+  padding: 0 24px 32px !important;
+}
+
+.VPFeatures .container {
+  max-width: 1152px !important;
+  margin: 0 auto !important;
+}
+
+.VPFeature {
+  padding: 28px !important;
+  border: 1px solid var(--vp-c-divider) !important;
+  border-radius: 14px !important;
+  background: var(--vp-c-bg-elv) !important;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease !important;
+}
+
+.VPFeature:hover {
+  border-color: var(--vp-c-text-1) !important;
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 2px rgba(17, 17, 17, 0.04),
+    0 8px 24px rgba(17, 17, 17, 0.06) !important;
+}
+
+.dark .VPFeature:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
+}
+
+.VPFeature .title {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em !important;
+  color: var(--vp-c-text-1) !important;
+  margin-bottom: 8px !important;
+}
+
+.VPFeature .details {
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+  color: var(--vp-c-text-2) !important;
+}
+
+.VPFeature .icon {
+  width: 44px !important;
+  height: 44px !important;
+  background: var(--vp-c-bg-soft) !important;
+  border-radius: 10px !important;
+  font-size: 22px !important;
+  margin-bottom: 18px !important;
+}
+
+/* ============================================================
+ * CODE BLOCKS
+ * ============================================================ */
+
+.vp-code-group .tabs,
+.vp-doc div[class*="language-"] {
+  border-radius: 10px !important;
+}
+
+div[class*="language-"] pre {
+  padding: 18px 22px !important;
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+}
+
+div[class*="language-"] > span.lang {
+  font-family: var(--vp-font-family-mono);
+  font-size: 10px !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(245, 243, 238, 0.35) !important;
+}
+
+/* ============================================================
+ * TABLES
+ * ============================================================ */
+
+.VPDoc table {
+  display: table !important;
+  width: 100% !important;
+  font-size: 14px;
+}
+
+.VPDoc table th {
+  background: var(--vp-c-bg-soft) !important;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: -0.005em;
+  color: var(--vp-c-text-2);
+  border-top: 1px solid var(--vp-c-divider) !important;
+}
+
+.VPDoc table tr {
+  border-top: 1px solid var(--vp-c-divider) !important;
+  background: transparent !important;
+}
+
+.VPDoc table td,
+.VPDoc table th {
+  padding: 12px 16px !important;
+}
+
+/* ============================================================
+ * BLOCKQUOTES, CALLOUTS
+ * ============================================================ */
+
+.VPDoc blockquote {
+  border-left: 2px solid var(--vp-c-text-3);
+  padding-left: 16px;
+  color: var(--vp-c-text-2);
+  font-style: normal;
+}
+
+.vp-doc .custom-block {
+  border-radius: 10px !important;
+  border-left-width: 3px !important;
+  padding: 16px 20px !important;
+}

@@ -12,9 +12,32 @@ export default defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: true,
 
-  head: [["link", { rel: "icon", type: "image/svg+xml", href: `${base}logo.svg` }]],
+  head: [
+    ["link", { rel: "icon", type: "image/svg+xml", href: `${base}logo.svg` }],
+    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    [
+      "link",
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" },
+    ],
+    [
+      "link",
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap",
+      },
+    ],
+    [
+      "meta",
+      { name: "theme-color", content: "#f5f3ee", media: "(prefers-color-scheme: light)" },
+    ],
+    [
+      "meta",
+      { name: "theme-color", content: "#0b0b0b", media: "(prefers-color-scheme: dark)" },
+    ],
+  ],
 
   themeConfig: {
+    logo: { src: "/logo.svg", alt: "Nova" },
     siteTitle: "Nova",
 
     nav: [
