@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 80" width="260" height="80">
+  <g transform="translate(10 10) scale(0.5)">
+    <path d="M60 6 L64.5 55.5 L114 60 L64.5 64.5 L60 114 L55.5 64.5 L6 60 L55.5 55.5 Z" fill="#ffffff"/>
+  </g>
+  <text x="82" y="58" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="52" font-weight="700" letter-spacing="-2" fill="#ffffff">Nova</text>
+</svg>

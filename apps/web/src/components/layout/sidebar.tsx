@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
+import { NovaBrand } from "@/components/ui/nova-logo";
 import { signOut } from "@/lib/auth-client";
 import {
   getStoredBoardProjectId,
@@ -130,12 +131,7 @@ export function Sidebar({ sessionUser }: SidebarProps) {
     <aside data-tour-id="sidebar" className="fixed left-0 top-0 h-screen w-64 bg-surface-container-low flex flex-col z-40 ghost-r">
       {/* Brand */}
       <div className="px-6 pt-7 pb-5">
-        <h1 className="text-[17px] font-extrabold tracking-[-0.04em] text-on-surface">
-          Nova
-        </h1>
-        <p className="font-mono text-[8px] text-primary/25 uppercase tracking-[0.25em] mt-0.5">
-          Agent Management
-        </p>
+        <NovaBrand />
       </div>
 
       {/* Navigation */}

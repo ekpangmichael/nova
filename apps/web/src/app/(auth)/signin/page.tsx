@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthClientError, signInWithPassword, signUpWithPassword } from "@/lib/auth-client";
+import { NovaMark } from "@/components/ui/nova-logo";
 
 type AuthMode = "signin" | "signup";
 
@@ -110,14 +111,7 @@ export default function SignInPage() {
   return (
     <>
       <div className="mb-10 flex flex-col items-center anim-1">
-        <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-sm bg-on-surface">
-          <span
-            className="material-symbols-outlined text-xl text-surface"
-            style={{ fontVariationSettings: "'FILL' 1" }}
-          >
-            terminal
-          </span>
-        </div>
+        <NovaMark size={44} className="text-on-surface mb-5" />
         <h1 className="font-headline text-2xl font-extrabold tracking-tighter text-on-surface">
           Nova
         </h1>
