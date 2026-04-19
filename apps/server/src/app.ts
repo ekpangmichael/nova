@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
@@ -9,8 +12,23 @@ import { apiRoutes } from "./routes/api.js";
 import { AuthService } from "./services/AuthService.js";
 import { NovaService } from "./services/NovaService.js";
 import { RuntimeManager } from "./services/runtime/RuntimeManager.js";
+import { TelemetryService } from "./services/TelemetryService.js";
 import type { AppServices } from "./services/types.js";
 import { WebsocketHub } from "./services/websocket/WebsocketHub.js";
+
+const readNovaVersion = (): string => {
+  try {
+    const packagePath = resolve(
+      fileURLToPath(new URL("../package.json", import.meta.url))
+    );
+    const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as {
+      version?: string;
+    };
+    return parsed.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+};
 
 type CreateAppOptions = {
   envOverrides?: Partial<NodeJS.ProcessEnv>;
@@ -77,6 +95,15 @@ export const createApp = async (
   };
 
   await nova.bootstrap();
+
+  const telemetry = new TelemetryService({
+    enabled: env.telemetryEnabled && env.nodeEnv !== "test",
+    endpoint: env.telemetryEndpoint,
+    appDataDir: env.appDataDir,
+    version: readNovaVersion(),
+    logger: app.log,
+  });
+  telemetry.start();
 
   app.decorate("services", services);
 
@@ -172,6 +199,7 @@ export const createApp = async (
   });
 
   app.addHook("onClose", async () => {
+    telemetry.stop();
     await services.nova.close();
     await services.runtimeManager.close();
     await database.close();

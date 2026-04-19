@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Linux-111827?style=for-the-badge" alt="macOS Linux" />
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-111827?style=for-the-badge" alt="macOS Linux Windows" />
   <img src="https://img.shields.io/badge/runs-locally-16a34a?style=for-the-badge" alt="Runs locally" />
   <img src="https://img.shields.io/badge/license-MIT-2563eb?style=for-the-badge" alt="MIT license" />
 </p>
@@ -167,7 +167,7 @@ The guided installer is the fastest way to get Nova running. It writes your `.en
 curl -fsSL https://raw.githubusercontent.com/ekpangmichael/nova/main/install.sh | bash -s -- --production
 ```
 
-Or if you prefer the CLI entrypoint directly:
+Or if you prefer the CLI entrypoint directly (**coming soon**):
 
 ```bash
 npx nova-cli@latest setup-production

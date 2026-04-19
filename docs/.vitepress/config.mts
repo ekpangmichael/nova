@@ -1,12 +1,18 @@
 import { defineConfig } from "vitepress";
 
+// When the site is hosted at https://<user>.github.io/nova/ we need the
+// `/nova/` base so asset URLs resolve. CI sets DOCS_BASE=/nova/.
+// Local dev and the root-domain case leave it as "/".
+const base = process.env.DOCS_BASE ?? "/";
+
 export default defineConfig({
   title: "Nova",
   description: "Local-first agent management platform",
+  base,
   cleanUrls: true,
   ignoreDeadLinks: true,
 
-  head: [["link", { rel: "icon", type: "image/svg+xml", href: "/logo.svg" }]],
+  head: [["link", { rel: "icon", type: "image/svg+xml", href: `${base}logo.svg` }]],
 
   themeConfig: {
     siteTitle: "Nova",
@@ -192,6 +198,10 @@ export default defineConfig({
           {
             text: "Configuration Reference",
             link: "/operations/configuration-reference",
+          },
+          {
+            text: "Telemetry",
+            link: "/operations/telemetry",
           },
         ],
       },
