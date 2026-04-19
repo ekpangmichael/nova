@@ -11,6 +11,7 @@
   <img src="https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-111827?style=for-the-badge" alt="macOS Linux Windows" />
   <img src="https://img.shields.io/badge/runs-locally-16a34a?style=for-the-badge" alt="Runs locally" />
   <img src="https://img.shields.io/badge/license-MIT-2563eb?style=for-the-badge" alt="MIT license" />
+  <a href="https://buymeacoffee.com/careerekpas"><img src="https://img.shields.io/badge/buy_me_a_coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
 <p align="center">
@@ -205,6 +206,23 @@ pnpm dev
 
 This starts the Fastify backend and the Next.js frontend in development mode. Open [http://localhost:3000](http://localhost:3000).
 
+## Uninstall
+
+To remove Nova completely from your machine:
+
+```bash
+# 1. Stop and remove the macOS LaunchAgent (skip if you never installed it)
+pnpm service:macos:uninstall
+
+# 2. Delete Nova's local data (projects, tasks, attachments, agent files)
+rm -rf ~/.nova
+
+# 3. Delete the Nova checkout
+rm -rf /path/to/nova
+```
+
+Nova stores everything on your machine, so those three steps remove all traces. No cloud state to clean up.
+
 ---
 
 # Requirements
@@ -282,6 +300,25 @@ pnpm typecheck           # Type-check all packages
 pnpm test                # Run all tests
 pnpm docs:dev            # Start the docs site
 ```
+
+---
+
+# Support the project
+
+Nova is built and maintained by one person in their spare time. If Nova saves you time, the coordination story resonates, or you just want to help keep it alive, a small donation goes a long way.
+
+<p>
+  <a href="https://buymeacoffee.com/careerekpas">
+    <img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee" />
+  </a>
+</p>
+
+Other ways to help, all free:
+
+* Star the repo
+* Share Nova with someone who juggles coding agents
+* Open an issue with your use case, feedback, or bugs
+* Send a pull request
 
 ---
 
