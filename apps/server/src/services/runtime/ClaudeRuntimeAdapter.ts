@@ -36,6 +36,7 @@ import { nowIso } from "../../lib/utils.js";
 import { ClaudeProcessManager } from "./ClaudeProcessManager.js";
 
 const CLAUDE_MODELS = [
+  "claude-opus-4-7",
   "claude-sonnet-4-6",
   "claude-opus-4-6",
   "claude-haiku-4-5-20251001",
@@ -47,6 +48,8 @@ const MAX_STDERR_LINES = 12;
 
 const formatClaudeModelName = (modelId: string) => {
   switch (modelId) {
+    case "claude-opus-4-7":
+      return "Claude Opus 4.7";
     case "claude-sonnet-4-6":
       return "Claude Sonnet 4.6";
     case "claude-opus-4-6":

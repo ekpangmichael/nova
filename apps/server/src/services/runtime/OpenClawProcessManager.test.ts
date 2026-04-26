@@ -63,7 +63,7 @@ const createEnvStub = (input: {
     codexBinaryPath: "codex",
     codexConfigPath: "/tmp/codex/config.toml",
     codexStateDir: "/tmp/codex",
-    codexDefaultModel: "gpt-5.4",
+    codexDefaultModel: "gpt-5.5",
     claudeBinaryPath: "claude",
     claudeConfigPath: "/tmp/claude/settings.json",
     claudeStateDir: "/tmp/claude",
@@ -117,7 +117,7 @@ describe("OpenClawProcessManager", () => {
       runtimeAgentId: "research-lead",
       workspacePath: join(stateDir, "workspace-research-lead"),
       runtimeStatePath: join(stateDir, "agents", "research-lead", "agent"),
-      defaultModelId: "openai-codex/gpt-5.4",
+      defaultModelId: "openai-codex/gpt-5.5",
     });
 
     const parsed = JSON.parse(await readFile(configPath, "utf8")) as {
@@ -174,7 +174,7 @@ describe("OpenClawProcessManager", () => {
       runtimeAgentId: "nova",
       workspacePath: join(stateDir, "workspace-nova"),
       runtimeStatePath: join(stateDir, "agents", "nova", "agent"),
-      defaultModelId: "openai-codex/gpt-5.4",
+      defaultModelId: "openai-codex/gpt-5.5",
     });
 
     const parsed = JSON.parse(await readFile(configPath, "utf8")) as {

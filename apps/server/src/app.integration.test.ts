@@ -705,6 +705,7 @@ describe("server integration", () => {
     const codexModelIds = catalogBody.models.map((model: { id: string }) => model.id);
     expect(codexModelIds).toEqual(
       expect.arrayContaining([
+        "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.3-codex",
@@ -1054,7 +1055,7 @@ describe("server integration", () => {
         runtimeAgentId: "existing-openclaw",
         workspacePath,
         runtimeStatePath,
-        defaultModelId: "openai-codex/gpt-5.4",
+        defaultModelId: "openai-codex/gpt-5.5",
         modelOverrideAllowed: true,
         sandboxMode: "off",
         defaultThinkingLevel: "medium",
@@ -1070,7 +1071,7 @@ describe("server integration", () => {
         systemInstructions: "Use the imported runtime identity.",
         runtime: {
           runtimeAgentId: "existing-openclaw",
-          defaultModelId: "openai-codex/gpt-5.4",
+          defaultModelId: "openai-codex/gpt-5.5",
           sandboxMode: "off",
           modelOverrideAllowed: true,
           defaultThinkingLevel: "medium",
@@ -1169,6 +1170,7 @@ describe("server integration", () => {
     const catalogBody = catalogResponse.json();
     expect(catalogBody.models.map((model: { id: string }) => model.id)).toEqual(
       expect.arrayContaining([
+        "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-opus-4-6",
         "claude-haiku-4-5-20251001",

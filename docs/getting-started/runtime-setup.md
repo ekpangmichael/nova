@@ -56,6 +56,7 @@ Nova detects Codex login state from the local Codex state directory and CLI stat
 
 Nova currently exposes this confirmed Codex model list:
 
+- `gpt-5.5`
 - `gpt-5.4`
 - `gpt-5.4-mini`
 - `gpt-5.3-codex`
@@ -88,6 +89,7 @@ Nova reuses the local Claude Code CLI session. It checks `claude auth status` an
 
 Nova currently exposes this confirmed Claude model list:
 
+- `claude-opus-4-7`
 - `claude-sonnet-4-6`
 - `claude-opus-4-6`
 - `claude-haiku-4-5-20251001`

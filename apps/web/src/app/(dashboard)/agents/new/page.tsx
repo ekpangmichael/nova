@@ -929,7 +929,7 @@ function CodexAgentForm({ onBack }: { onBack: () => void }) {
           nextConfig.current.defaultModel ??
             nextConfig.detected.defaultModel ??
             nextCatalog.defaults.defaultModelId ??
-            "gpt-5.4"
+            "gpt-5.5"
         );
       } catch (error) {
         if (cancelled) {
