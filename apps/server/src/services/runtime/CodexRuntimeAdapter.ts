@@ -95,6 +95,7 @@ const STOP_KILL_TIMEOUT_MS = 5_000;
 const MAX_STDERR_LINES = 12;
 const SHELL_SNAPSHOT_WARNING = "shell_snapshot";
 const CODEX_SUPPORTED_MODELS = [
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
   "gpt-5.3-codex",

@@ -101,4 +101,4 @@ The mock adapter reports a single model in its catalog:
 
 | ID | Name | Context Window | Input |
 |----|------|---------------|-------|
-| `openai-codex/gpt-5.4` | GPT-5.4 | 272,000 | text+image |
+| `openai-codex/gpt-5.5` | GPT-5.5 | 1,000,000 | text+image |

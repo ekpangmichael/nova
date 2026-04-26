@@ -114,18 +114,18 @@ export class MockRuntimeAdapter implements RuntimeAdapter {
       },
       defaults: {
         defaultAgentId: this.#runtimeAgents.keys().next().value ?? null,
-        defaultModelId: "openai-codex/gpt-5.4",
+        defaultModelId: "openai-codex/gpt-5.5",
         workspacePathTemplate: "/tmp/mock-openclaw/workspace-<agentId>",
         runtimeStatePathTemplate: "/tmp/mock-openclaw/agents/<agentId>/agent",
       },
       models: [
         {
-          id: "openai-codex/gpt-5.4",
-          name: "GPT-5.4",
+          id: "openai-codex/gpt-5.5",
+          name: "GPT-5.5",
           available: true,
           local: false,
           input: "text+image",
-          contextWindow: 272000,
+          contextWindow: 1000000,
           tags: ["default", "configured"],
         },
       ],
